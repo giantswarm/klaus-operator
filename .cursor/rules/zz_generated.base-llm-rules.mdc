@@ -38,6 +38,15 @@ You are an AI assistant acting as an expert software developer and platform engi
 Additional language-specific rules can be found in the general style guide and in the other rules files in this repository.
 
 
+### Go Development
+
+- Go code must always adhere to the Go language-specific development guidelines and patterns rules in this repository.
+
+### Go Application Security
+
+- Ensure all Go dependencies are up to date.
+- Follow best security practices for Go applications.
+
 
 ---
 
@@ -47,6 +56,6 @@ For detailed guidelines and examples, always refer to: @https://github.com/giant
 <!--
 DO NOT EDIT. Generated with devctl.
 This file is maintained at:
-https://github.com/giantswarm/devctl/blob/3bbd5cb47ff855f0b9c88881fbdcaa907d85647c/pkg/gen/input/llm/internal/file/base_llm_rules.mdc.template
+https://github.com/giantswarm/devctl/blob/3790bcb9f57144eee85fc805c8f89c6c6ce294ab/pkg/gen/input/llm/internal/file/base_llm_rules.mdc.template
 Manual changes will be overwritten.
 -->
