@@ -1,29 +1,40 @@
-# General Go template repository
+# klaus-operator
 
-This is a general template repository containing some basic files every GitHub repo owned by Giant Swarm should have.
+Kubernetes operator for dynamic management of [Klaus](https://github.com/giantswarm/klaus) instances. Enables platform teams to define reusable agent configurations and lets development teams create on-demand headless AI coding agents via Custom Resource Definitions.
 
-Note also these more specific repositories:
+## Overview
 
-- [template-app](https://github.com/giantswarm/template-app)
-- [gitops-template](https://github.com/giantswarm/gitops-template)
-- [python-app-template](https://github.com/giantswarm/python-app-template)
+The klaus-operator manages the full lifecycle of Klaus instances through Kubernetes CRDs:
 
-## Creating a new repository
+- **KlausInstance** -- represents a running Klaus agent with its configuration, workspace, and MCP server registration
+- **KlausPersonality** -- reusable templates combining plugins, skills, agents, hooks, MCP servers, and model settings
+- **ClaudePlugin** -- shared Claude Code plugins (inline or OCI-sourced) that can be referenced by multiple instances
+- **ClaudeMCPServer** -- shared MCP server configurations with Secret injection for credentials
 
-Please do not use the `Use this template` function in the GitHub web UI.
+## Architecture
 
-Check out the according [handbook article](https://handbook.giantswarm.io/docs/dev-and-releng/repository/go/) for better instructions.
+```
+User IDE  -->  Muster  -->  klaus-operator MCP  (create/list/delete instances)
+                  |
+                  +---->  klaus instance A  (prompt/status/stop/result)
+                  +---->  klaus instance B  (prompt/status/stop/result)
+```
 
-### Some suggestions for your README
+The operator itself exposes an MCP server interface (registered in Muster) with tools for creating, listing, and managing instances. Each managed Klaus instance runs as a separate Deployment with its own PVC workspace.
 
-After you have created your new repository, you may want to add some of these badges to the top of your README.
+## CRDs
 
-- **CircleCI:** After enabling builds for this repo via [this link](https://circleci.com/setup-project/gh/giantswarm/klaus-operator), you can find badge code on [this page](https://app.circleci.com/settings/project/github/giantswarm/klaus-operator/status-badges).
+| CRD | Description |
+|-----|-------------|
+| `KlausInstance` | A running Klaus agent instance with configuration and workspace |
+| `KlausPersonality` | Reusable template for instance configuration |
+| `ClaudePlugin` | Shared plugin definition (inline content or OCI artifact reference) |
+| `ClaudeMCPServer` | Shared MCP server config with Secret-based credential injection |
 
-- **Go reference:** use [this helper](https://pkg.go.dev/badge/) to create the markdown code.
+## Development
 
-- **Go report card:** enter the module name on the [front page](https://goreportcard.com/) and hit "Generate report". Then use this markdown code for your badge: `[![Go report card](https://goreportcard.com/badge/github.com/giantswarm/klaus-operator)](https://goreportcard.com/report/github.com/giantswarm/klaus-operator)`
+See [docs/development.md](docs/development.md) for development setup and contribution guidelines.
 
-- **OpenSSF Scorecard Report:** for public repos only: `[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/giantswarm/{APP-NAME}/badge)](https://securityscorecards.dev/viewer/?uri=github.com/giantswarm/{APP-NAME})`
+## License
 
-- **Sourcegraph "used by N projects" badge**: for public Go repos only: `[![Sourcegraph](https://sourcegraph.com/github.com/giantswarm/klaus-operator/-/badge.svg)](https://sourcegraph.com/github.com/giantswarm/klaus-operator)`
+Apache 2.0 -- see [LICENSE](LICENSE).
