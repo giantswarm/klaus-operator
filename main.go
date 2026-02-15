@@ -89,6 +89,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up the KlausPersonality controller.
+	if err := (&controller.KlausPersonalityReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Recorder:          mgr.GetEventRecorderFor("klauspersonality-controller"),
+		OperatorNamespace: operatorNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KlausPersonality")
+		os.Exit(1)
+	}
+
 	// Set up health checks.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

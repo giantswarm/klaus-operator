@@ -94,27 +94,34 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Validate the spec.
-	if err := resources.ValidateSpec(&instance); err != nil {
+	// Resolve personalityRef and merge personality defaults into instance spec.
+	// We work on a deep copy so the original object is not mutated in the cache.
+	merged := instance.DeepCopy()
+	if err := r.resolvePersonality(ctx, merged); err != nil {
+		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
+	}
+
+	// Validate the merged spec.
+	if err := resources.ValidateSpec(merged); err != nil {
 		return r.updateStatusError(ctx, &instance, "ValidationError", err)
 	}
 
 	// Determine the target namespace.
-	namespace := resources.UserNamespace(instance.Spec.Owner)
+	namespace := resources.UserNamespace(merged.Spec.Owner)
 
 	logger.Info("reconciling KlausInstance",
-		"instance", instance.Name,
-		"owner", instance.Spec.Owner,
+		"instance", merged.Name,
+		"owner", merged.Spec.Owner,
 		"namespace", namespace,
 	)
 
 	// 1. Ensure namespace exists.
-	if err := r.ensureNamespace(ctx, &instance, namespace); err != nil {
+	if err := r.ensureNamespace(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "NamespaceError", err)
 	}
 
 	// 2. Copy the Anthropic API key Secret.
-	found, err := r.copyAPIKeySecret(ctx, &instance, namespace)
+	found, err := r.copyAPIKeySecret(ctx, merged, namespace)
 	if err != nil {
 		return r.updateStatusError(ctx, &instance, "SecretError", err)
 	}
@@ -124,7 +131,7 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 3. Create/update ConfigMap.
-	cm, err := resources.BuildConfigMap(&instance, namespace)
+	cm, err := resources.BuildConfigMap(merged, namespace)
 	if err != nil {
 		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "BuildError", err.Error())
 		return r.updateStatusError(ctx, &instance, "ConfigMapError", err)
@@ -136,17 +143,17 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	setCondition(&instance, ConditionConfigReady, metav1.ConditionTrue, "Reconciled", "ConfigMap reconciled")
 
 	// 4. Create/update PVC (if workspace configured).
-	if err := r.reconcilePVC(ctx, &instance, namespace); err != nil {
+	if err := r.reconcilePVC(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "PVCError", err)
 	}
 
 	// 5. Ensure ServiceAccount.
-	if err := r.ensureServiceAccount(ctx, &instance, namespace); err != nil {
+	if err := r.ensureServiceAccount(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "ServiceAccountError", err)
 	}
 
 	// 6. Create/update Deployment.
-	dep := resources.BuildDeployment(&instance, namespace, r.KlausImage, cm.Data)
+	dep := resources.BuildDeployment(merged, namespace, r.KlausImage, cm.Data)
 	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
@@ -165,13 +172,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 7. Create/update Service.
-	svc := resources.BuildService(&instance, namespace)
+	svc := resources.BuildService(merged, namespace)
 	if err := r.reconcileService(ctx, &instance, svc); err != nil {
 		return r.updateStatusError(ctx, &instance, "ServiceError", err)
 	}
 
 	// 8. Create/update MCPServer CRD in muster namespace.
-	if err := r.reconcileMCPServer(ctx, &instance, namespace); err != nil {
+	if err := r.reconcileMCPServer(ctx, merged, namespace); err != nil {
 		// MCPServer creation failure is not fatal -- log and continue.
 		logger.Error(err, "failed to reconcile MCPServer CRD")
 		r.Recorder.Event(&instance, corev1.EventTypeWarning, "MCPServerError", err.Error())
@@ -180,7 +187,8 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCondition(&instance, ConditionMCPServerReady, metav1.ConditionTrue, "Reconciled", "MCPServer CRD reconciled")
 	}
 
-	// 9. Update status.
+	// 9. Update status. Use the merged spec for status computation (plugin
+	// counts, mode) so the status reflects the effective configuration.
 	if deploymentReady {
 		return r.updateStatusRunning(ctx, &instance, namespace)
 	}
@@ -457,11 +465,33 @@ func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, insta
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
+// resolvePersonality fetches the referenced KlausPersonality and merges its
+// spec into the instance spec. If no personalityRef is set, this is a no-op.
+func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
+	if instance.Spec.PersonalityRef == nil {
+		return nil
+	}
+
+	var personality klausv1alpha1.KlausPersonality
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      instance.Spec.PersonalityRef.Name,
+		Namespace: instance.Namespace,
+	}, &personality); err != nil {
+		return fmt.Errorf("resolving personality %q: %w", instance.Spec.PersonalityRef.Name, err)
+	}
+
+	resources.MergePersonalityIntoInstance(&personality.Spec, &instance.Spec)
+	return nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 // We use label-based watches with Watches() instead of Owns() because child
 // resources live in different namespaces (user namespaces) from the parent
 // KlausInstance (operator namespace). Owns() relies on owner references which
 // cannot cross namespace boundaries.
+//
+// We also watch KlausPersonality resources so that changes to a personality
+// trigger reconciliation of all instances that reference it.
 func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	managedByPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -495,6 +525,9 @@ func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(managedByPredicate)).
 		Watches(&corev1.ConfigMap{}, mapToInstance,
 			builder.WithPredicates(managedByPredicate)).
+		Watches(&klausv1alpha1.KlausPersonality{},
+			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingInstances(r.Client, r.OperatorNamespace)),
+		).
 		Named("klausinstance").
 		Complete(r)
 }

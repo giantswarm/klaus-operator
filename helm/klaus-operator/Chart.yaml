@@ -1,6 +1,7 @@
 apiVersion: v2
 name: klaus-operator
 description: Kubernetes operator for dynamic management of Klaus AI agent instances
+icon: https://raw.githubusercontent.com/giantswarm/klaus-operator/main/icon.png
 type: application
 version: 0.1.0
 appVersion: 0.1.0
