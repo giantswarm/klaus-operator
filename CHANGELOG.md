@@ -29,6 +29,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced manual get-create-or-update methods with `controllerutil.CreateOrUpdate` across all reconciled resources (Namespace, Secret, ConfigMap, Deployment, Service, ServiceAccount).
+- Replaced custom `setCondition` implementation with `apimeta.SetStatusCondition` from `k8s.io/apimachinery`.
+- Extracted `SelectorLabels` helper to ensure Deployment and Service selector labels are always in sync.
+- Extracted `mcpServerGVK` package-level variable to eliminate duplicated MCPServer GVK construction.
+- Typed `PermissionMode`, `EffortLevel`, and `InstanceMode` as named string types with `kubebuilder:validation:Enum` markers.
+- Changed `SkillConfig.AllowedTools` from `string` to `[]string` for consistency with `ClaudeConfig.AllowedTools`.
+- Added CEL validation markers on `PluginReference` for tag/digest mutual exclusivity.
+- Deployment restart in MCP tools now uses `client.MergeFrom` patch instead of full `Update` to avoid conflicts.
+- Controller returns early after adding finalizer for cleaner reconcile loop.
+- Controller now checks `Deployment.Status.AvailableReplicas` before setting `Running` state; uses `Pending` + requeue while rolling out.
+- Dockerfile now uses `-trimpath -ldflags="-s -w"` for smaller, reproducible builds.
+- Added `.dockerignore` to exclude `.git`, docs, and Helm chart from build context.
+- MCPServer CRD `toolPrefix` field is now only included when non-empty.
+- Removed redundant per-item `Mode` from hook script volume items (covered by `DefaultMode`).
+- Simplified `sanitizeIdentifier` by removing redundant `@` and `.` replacements already handled by the regex.
+- Fixed `sanitizeIdentifier` to trim hyphens after truncation to prevent invalid trailing-hyphen DNS labels.
+- Fixed `compactJSON` for skill context to prevent multi-line JSON from breaking YAML frontmatter.
 - MCP server is now wired through controller-runtime's manager for graceful shutdown instead of a bare goroutine with `os.Exit`.
 - Replaced `copyAPIKeySecret` dead `[]byte` return with `(bool, error)` for clarity.
 - Unified `UserNamespace` and `sanitizeLabelValue` into a shared `sanitizeIdentifier` helper.
@@ -41,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `reconcileDelete` to collect all child deletion errors and only remove the finalizer when all resources are confirmed deleted, preventing resource orphaning.
+- Fixed `Personality` status field not being cleared when `PersonalityRef` is removed from the spec.
 - Fixed potential panic in `reconcileMCPServer` from unsafe type assertion on unstructured metadata; replaced with `SetLabels`/`GetLabels`.
 - Fixed case-insensitive Bearer token stripping per RFC 6750; previously only matched `Bearer` and `bearer`.
 - Cross-namespace resource management: replaced `Owns()` with label-based watches using `builder.WithPredicates` and `LabelSelectorPredicate`, since owner references cannot cross namespace boundaries.

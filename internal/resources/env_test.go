@@ -15,7 +15,7 @@ func TestBuildEnvVars_Basics(t *testing.T) {
 			Owner: "test@example.com",
 			Claude: klausv1alpha1.ClaudeConfig{
 				Model:          "claude-sonnet-4-20250514",
-				PermissionMode: "bypassPermissions",
+				PermissionMode: klausv1alpha1.PermissionModeBypass,
 			},
 		},
 	}

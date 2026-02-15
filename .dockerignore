@@ -1,0 +1,10 @@
+.git
+.github
+.cursor
+.vscode
+*.md
+!go.mod
+!go.sum
+docs/
+helm/
+hack/

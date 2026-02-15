@@ -1,6 +1,7 @@
 package controller
 
 import (
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
@@ -23,27 +24,11 @@ const (
 
 // setCondition updates or appends a condition on the instance status.
 func setCondition(instance *klausv1alpha1.KlausInstance, condType string, status metav1.ConditionStatus, reason, message string) {
-	now := metav1.Now()
-	condition := metav1.Condition{
+	apimeta.SetStatusCondition(&instance.Status.Conditions, metav1.Condition{
 		Type:               condType,
 		Status:             status,
 		ObservedGeneration: instance.Generation,
-		LastTransitionTime: now,
 		Reason:             reason,
 		Message:            message,
-	}
-
-	// Find and update existing condition, or append.
-	for i, existing := range instance.Status.Conditions {
-		if existing.Type == condType {
-			// Only update LastTransitionTime if the status changed.
-			if existing.Status == status {
-				condition.LastTransitionTime = existing.LastTransitionTime
-			}
-			instance.Status.Conditions[i] = condition
-			return
-		}
-	}
-
-	instance.Status.Conditions = append(instance.Status.Conditions, condition)
+	})
 }

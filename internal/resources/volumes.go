@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
@@ -150,7 +149,7 @@ func buildScriptItems(instance *klausv1alpha1.KlausInstance) []corev1.KeyToPath 
 		items = append(items, corev1.KeyToPath{
 			Key:  "hookscript-" + name,
 			Path: "hookscript-" + name,
-			Mode: ptr.To(int32(0755)),
+			// Mode is omitted; DefaultMode (0755) on the volume applies.
 		})
 	}
 	return items

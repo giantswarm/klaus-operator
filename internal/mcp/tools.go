@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/resources"
@@ -49,7 +48,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 			Owner: user,
 			Claude: klausv1alpha1.ClaudeConfig{
 				Model:          model,
-				PermissionMode: "bypassPermissions",
+				PermissionMode: klausv1alpha1.PermissionModeBypass,
 				SystemPrompt:   systemPrompt,
 			},
 		},
@@ -179,13 +178,15 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 		return mcpError("failed to get deployment: " + err.Error()), nil
 	}
 
-	// Add/update restart annotation to trigger rollout.
+	// Use a strategic merge patch to avoid conflicts with the controller's
+	// concurrent reconciliation of the same Deployment object.
+	patch := client.MergeFrom(deployment.DeepCopy())
 	if deployment.Spec.Template.Annotations == nil {
 		deployment.Spec.Template.Annotations = map[string]string{}
 	}
 	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
 
-	if err := s.client.Update(ctx, &deployment); err != nil {
+	if err := s.client.Patch(ctx, &deployment, patch); err != nil {
 		return mcpError("failed to restart deployment: " + err.Error()), nil
 	}
 

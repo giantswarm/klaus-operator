@@ -73,7 +73,7 @@ func TestBuildConfigMap_Skills(t *testing.T) {
 					Description:   "Deploy using GitOps",
 					Content:       "Never apply directly to a cluster.",
 					UserInvocable: &boolTrue,
-					AllowedTools:  "Read,Grep",
+					AllowedTools:  []string{"Read", "Grep"},
 				},
 			},
 		},

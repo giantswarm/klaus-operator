@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -28,6 +29,13 @@ import (
 )
 
 const finalizerName = "klaus.giantswarm.io/finalizer"
+
+// mcpServerGVK is the GroupVersionKind for the MCPServer CRD managed by muster.
+var mcpServerGVK = schema.GroupVersionKind{
+	Group:   "muster.giantswarm.io",
+	Version: "v1alpha1",
+	Kind:    "MCPServer",
+}
 
 // KlausInstanceReconciler reconciles a KlausInstance object.
 type KlausInstanceReconciler struct {
@@ -71,12 +79,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.reconcileDelete(ctx, &instance)
 	}
 
-	// Ensure finalizer.
+	// Ensure finalizer. Return early so the next reconcile starts with a
+	// consistent object that includes the finalizer.
 	if !controllerutil.ContainsFinalizer(&instance, finalizerName) {
 		controllerutil.AddFinalizer(&instance, finalizerName)
-		if err := r.Update(ctx, &instance); err != nil {
-			return ctrl.Result{}, err
-		}
+		return ctrl.Result{}, r.Update(ctx, &instance)
 	}
 
 	// Update status to Pending.
@@ -144,7 +151,18 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
 	}
-	setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Reconciled", "Deployment reconciled")
+
+	// Check Deployment readiness before declaring Running.
+	var currentDep appsv1.Deployment
+	if err := r.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, &currentDep); err != nil {
+		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
+	}
+	deploymentReady := currentDep.Status.AvailableReplicas > 0
+	if deploymentReady {
+		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Available", "Deployment has available replicas")
+	} else {
+		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
+	}
 
 	// 7. Create/update Service.
 	svc := resources.BuildService(&instance, namespace)
@@ -163,35 +181,25 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 9. Update status.
-	return r.updateStatusRunning(ctx, &instance, namespace)
+	if deploymentReady {
+		return r.updateStatusRunning(ctx, &instance, namespace)
+	}
+	return r.updateStatusPending(ctx, &instance, namespace)
 }
 
 func (r *KlausInstanceReconciler) ensureNamespace(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
 	desired := resources.BuildNamespace(instance)
-	existing := &corev1.Namespace{}
-	err := r.Get(ctx, types.NamespacedName{Name: namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, desired)
-	}
-	if err != nil {
-		return err
-	}
-
-	// Reconcile labels on existing namespace.
-	needsUpdate := false
-	if existing.Labels == nil {
-		existing.Labels = make(map[string]string)
-	}
-	for k, v := range desired.Labels {
-		if existing.Labels[k] != v {
-			existing.Labels[k] = v
-			needsUpdate = true
+	existing := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		if existing.Labels == nil {
+			existing.Labels = make(map[string]string)
 		}
-	}
-	if needsUpdate {
-		return r.Update(ctx, existing)
-	}
-	return nil
+		for k, v := range desired.Labels {
+			existing.Labels[k] = v
+		}
+		return nil
+	})
+	return err
 }
 
 // copyAPIKeySecret copies the shared Anthropic API key Secret into the
@@ -217,35 +225,30 @@ func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance
 	}
 
 	// Create or update the secret in the instance namespace.
-	destSecret := resources.BuildAPIKeySecret(instance, namespace, apiKey)
-	existing := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Name: destSecret.Name, Namespace: namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		return true, r.Create(ctx, destSecret)
-	}
+	desired := resources.BuildAPIKeySecret(instance, namespace, apiKey)
+	existing := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: namespace}}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Data = desired.Data
+		existing.Labels = desired.Labels
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-
-	// Update if data changed.
-	existing.Data = destSecret.Data
-	return true, r.Update(ctx, existing)
+	return true, nil
 }
 
 func (r *KlausInstanceReconciler) reconcileConfigMap(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *corev1.ConfigMap) error {
-	existing := &corev1.ConfigMap{}
-	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingConfigMap", "Creating ConfigMap "+desired.Name)
-		return r.Create(ctx, desired)
+	existing := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: desired.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Data = desired.Data
+		existing.Labels = desired.Labels
+		return nil
+	})
+	if op == controllerutil.OperationResultCreated {
+		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingConfigMap", "Created ConfigMap "+desired.Name)
 	}
-	if err != nil {
-		return err
-	}
-
-	existing.Data = desired.Data
-	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return err
 }
 
 func (r *KlausInstanceReconciler) reconcilePVC(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
@@ -265,68 +268,51 @@ func (r *KlausInstanceReconciler) reconcilePVC(ctx context.Context, instance *kl
 }
 
 func (r *KlausInstanceReconciler) ensureServiceAccount(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      instance.Name,
-			Namespace: namespace,
-			Labels:    resources.InstanceLabels(instance),
-		},
-	}
-
-	existing := &corev1.ServiceAccount{}
-	err := r.Get(ctx, types.NamespacedName{Name: sa.Name, Namespace: namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, sa)
-	}
+	existing := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: instance.Name, Namespace: namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Labels = resources.InstanceLabels(instance)
+		return nil
+	})
 	return err
 }
 
 func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *appsv1.Deployment) error {
-	existing := &appsv1.Deployment{}
-	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingDeployment", "Creating Deployment "+desired.Name)
-		return r.Create(ctx, desired)
+	existing := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: desired.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Spec = desired.Spec
+		existing.Labels = desired.Labels
+		return nil
+	})
+	if op == controllerutil.OperationResultCreated {
+		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingDeployment", "Created Deployment "+desired.Name)
 	}
-	if err != nil {
-		return err
-	}
-
-	// Update the spec.
-	existing.Spec = desired.Spec
-	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return err
 }
 
 func (r *KlausInstanceReconciler) reconcileService(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *corev1.Service) error {
-	existing := &corev1.Service{}
-	err := r.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing)
-	if apierrors.IsNotFound(err) {
-		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingService", "Creating Service "+desired.Name)
-		return r.Create(ctx, desired)
+	existing := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: desired.Namespace}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		// Preserve ClusterIP on update.
+		clusterIP := existing.Spec.ClusterIP
+		existing.Spec = desired.Spec
+		existing.Spec.ClusterIP = clusterIP
+		existing.Labels = desired.Labels
+		return nil
+	})
+	if op == controllerutil.OperationResultCreated {
+		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingService", "Created Service "+desired.Name)
 	}
-	if err != nil {
-		return err
-	}
-
-	// Preserve ClusterIP on update.
-	desired.Spec.ClusterIP = existing.Spec.ClusterIP
-	existing.Spec = desired.Spec
-	existing.Labels = desired.Labels
-	return r.Update(ctx, existing)
+	return err
 }
 
 func (r *KlausInstanceReconciler) reconcileMCPServer(ctx context.Context, instance *klausv1alpha1.KlausInstance, instanceNamespace string) error {
 	desired := resources.BuildMCPServerCRD(instance, instanceNamespace)
 
-	existing := &unstructured.Unstructured{}
-	existing.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "muster.giantswarm.io",
-		Version: "v1alpha1",
-		Kind:    "MCPServer",
-	})
-
 	musterNamespace := resources.MusterNamespace(instance)
+	existing := &unstructured.Unstructured{}
+	existing.SetGroupVersionKind(mcpServerGVK)
+	existing.SetName("klaus-" + instance.Name)
+	existing.SetNamespace(musterNamespace)
 
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      "klaus-" + instance.Name,
@@ -381,6 +367,7 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 		})
 	}
 
+	var errs []error
 	for _, obj := range inNamespaceResources {
 		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			logger.Error(err, "failed to delete resource",
@@ -388,6 +375,7 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 				"name", obj.GetName(),
 				"namespace", obj.GetNamespace(),
 			)
+			errs = append(errs, err)
 		}
 	}
 
@@ -395,16 +383,18 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 	musterNamespace := resources.MusterNamespace(instance)
 
 	mcpServer := &unstructured.Unstructured{}
-	mcpServer.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "muster.giantswarm.io",
-		Version: "v1alpha1",
-		Kind:    "MCPServer",
-	})
+	mcpServer.SetGroupVersionKind(mcpServerGVK)
 	mcpServer.SetName("klaus-" + instance.Name)
 	mcpServer.SetNamespace(musterNamespace)
 
 	if err := r.Delete(ctx, mcpServer); err != nil && !apierrors.IsNotFound(err) {
 		logger.Error(err, "failed to delete MCPServer CRD")
+		errs = append(errs, err)
+	}
+
+	// Only remove the finalizer once all child resources are confirmed deleted.
+	if len(errs) > 0 {
+		return ctrl.Result{}, fmt.Errorf("cleaning up child resources: %w", errors.Join(errs...))
 	}
 
 	// Remove finalizer.
@@ -425,30 +415,46 @@ func (r *KlausInstanceReconciler) updateStatusError(ctx context.Context, instanc
 	return ctrl.Result{}, err
 }
 
-func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (ctrl.Result, error) {
-	instance.Status.State = klausv1alpha1.InstanceStateRunning
+func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.KlausInstance, namespace string) {
 	instance.Status.Endpoint = resources.ServiceEndpoint(instance, namespace)
 	instance.Status.PluginCount = len(instance.Spec.Plugins)
 	instance.Status.MCPServerCount = len(instance.Spec.MCPServers) + len(instance.Spec.Claude.MCPServers)
 	instance.Status.ObservedGeneration = instance.Generation
 
 	if instance.Spec.Claude.PersistentMode != nil && *instance.Spec.Claude.PersistentMode {
-		instance.Status.Mode = "persistent"
+		instance.Status.Mode = klausv1alpha1.InstanceModePersistent
 	} else {
-		instance.Status.Mode = "single-shot"
+		instance.Status.Mode = klausv1alpha1.InstanceModeSingleShot
 	}
 
 	if instance.Spec.PersonalityRef != nil {
 		instance.Status.Personality = instance.Spec.PersonalityRef.Name
+	} else {
+		instance.Status.Personality = ""
 	}
+}
 
+func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (ctrl.Result, error) {
+	instance.Status.State = klausv1alpha1.InstanceStateRunning
+	r.populateCommonStatus(instance, namespace)
 	setCondition(instance, ConditionReady, metav1.ConditionTrue, "Reconciled", "All resources reconciled successfully")
 
 	if err := r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
-
 	return ctrl.Result{}, nil
+}
+
+func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (ctrl.Result, error) {
+	instance.Status.State = klausv1alpha1.InstanceStatePending
+	r.populateCommonStatus(instance, namespace)
+	setCondition(instance, ConditionReady, metav1.ConditionFalse, "Progressing", "Waiting for Deployment to become available")
+
+	if err := r.Status().Update(ctx, instance); err != nil {
+		return ctrl.Result{}, err
+	}
+	// Requeue to check deployment readiness again.
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

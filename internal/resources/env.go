@@ -52,7 +52,7 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	if instance.Spec.Claude.PermissionMode != "" {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_PERMISSION_MODE",
-			Value: instance.Spec.Claude.PermissionMode,
+			Value: string(instance.Spec.Claude.PermissionMode),
 		})
 	}
 
@@ -125,7 +125,7 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	if instance.Spec.Claude.Effort != "" {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_EFFORT",
-			Value: instance.Spec.Claude.Effort,
+			Value: string(instance.Spec.Claude.Effort),
 		})
 	}
 

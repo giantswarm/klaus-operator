@@ -17,10 +17,9 @@ const (
 	authTokenKey contextKey = iota
 )
 
-// HTTPContextFuncAuth returns an HTTPContextFunc that extracts the Authorization
-// header from the incoming HTTP request and stores it in the context. This is
-// used with mcp-go's WithHTTPContextFunc to make the token available to tool
-// handlers via context.
+// HTTPContextFuncAuth extracts the Authorization header from the incoming HTTP
+// request and stores it in the context. It is used with mcp-go's
+// WithHTTPContextFunc to make the token available to tool handlers.
 func HTTPContextFuncAuth(ctx context.Context, r *http.Request) context.Context {
 	if token := r.Header.Get("Authorization"); token != "" {
 		ctx = context.WithValue(ctx, authTokenKey, token)

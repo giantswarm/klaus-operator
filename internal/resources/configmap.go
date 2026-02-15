@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -128,14 +129,22 @@ func renderSkillMD(skill klausv1alpha1.SkillConfig) string {
 	if skill.UserInvocable != nil {
 		b.WriteString(fmt.Sprintf("userInvocable: %t\n", *skill.UserInvocable))
 	}
-	if skill.AllowedTools != "" {
-		b.WriteString(fmt.Sprintf("allowedTools: %q\n", skill.AllowedTools))
+	if len(skill.AllowedTools) > 0 {
+		b.WriteString(fmt.Sprintf("allowedTools: %q\n", strings.Join(skill.AllowedTools, ",")))
 	}
 	if skill.Model != "" {
 		b.WriteString(fmt.Sprintf("model: %q\n", skill.Model))
 	}
 	if skill.Context != nil && skill.Context.Raw != nil {
-		b.WriteString(fmt.Sprintf("context:\n  %s\n", string(skill.Context.Raw)))
+		// Compact the JSON to a single line to avoid breaking YAML frontmatter
+		// structure with multi-line or YAML-special content.
+		compacted, err := compactJSON(skill.Context.Raw)
+		if err == nil {
+			b.WriteString(fmt.Sprintf("context:\n  %s\n", compacted))
+		} else {
+			// Fall back to raw content if compaction fails.
+			b.WriteString(fmt.Sprintf("context:\n  %s\n", string(skill.Context.Raw)))
+		}
 	}
 	if skill.Agent != "" {
 		b.WriteString(fmt.Sprintf("agent: %q\n", skill.Agent))
@@ -153,4 +162,13 @@ func renderSkillMD(skill klausv1alpha1.SkillConfig) string {
 	}
 
 	return b.String()
+}
+
+// compactJSON marshals raw JSON bytes into a single-line representation.
+func compactJSON(raw []byte) (string, error) {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

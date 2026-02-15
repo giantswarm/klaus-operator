@@ -42,10 +42,7 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 		Spec: appsv1.DeploymentSpec{
 			Replicas: ptr.To(int32(1)),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/name":     "klaus",
-					"app.kubernetes.io/instance": instance.Name,
-				},
+				MatchLabels: SelectorLabels(instance),
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{

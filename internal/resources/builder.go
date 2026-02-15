@@ -54,14 +54,22 @@ func UserNamespace(owner string) string {
 	return "klaus-user-" + sanitizeIdentifier(owner, 50)
 }
 
+// SelectorLabels returns the minimal label set used for pod selection by both
+// the Deployment and Service. Keeping these in sync is critical -- if they
+// diverge, the Service silently stops matching pods.
+func SelectorLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":     "klaus",
+		"app.kubernetes.io/instance": instance.Name,
+	}
+}
+
 // InstanceLabels returns standard labels for resources owned by the instance.
 func InstanceLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/name":       "klaus",
-		"app.kubernetes.io/instance":   instance.Name,
-		"app.kubernetes.io/managed-by": "klaus-operator",
-		"klaus.giantswarm.io/owner":    sanitizeLabelValue(instance.Spec.Owner),
-	}
+	labels := SelectorLabels(instance)
+	labels["app.kubernetes.io/managed-by"] = "klaus-operator"
+	labels["klaus.giantswarm.io/owner"] = sanitizeLabelValue(instance.Spec.Owner)
+	return labels
 }
 
 // ConfigMapName returns the ConfigMap name for an instance.
@@ -155,12 +163,11 @@ func sanitizeLabelValue(s string) string {
 // replacing non-alphanumeric characters with hyphens, and trimming/truncating.
 func sanitizeIdentifier(s string, maxLen int) string {
 	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "@", "-")
-	s = strings.ReplaceAll(s, ".", "-")
 	s = sanitizeRegexp.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
 	if len(s) > maxLen {
 		s = s[:maxLen]
 	}
+	// Trim after truncation to avoid trailing hyphens from the cut.
+	s = strings.Trim(s, "-")
 	return s
 }

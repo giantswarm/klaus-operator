@@ -87,6 +87,28 @@ type PersonalityReference struct {
 	Name string `json:"name"`
 }
 
+// PermissionMode controls how tool permissions are handled.
+// +kubebuilder:validation:Enum=bypassPermissions;default
+type PermissionMode string
+
+const (
+	// PermissionModeBypass bypasses all tool permission prompts.
+	PermissionModeBypass PermissionMode = "bypassPermissions"
+
+	// PermissionModeDefault uses the default permission handling.
+	PermissionModeDefault PermissionMode = "default"
+)
+
+// EffortLevel controls thinking effort level.
+// +kubebuilder:validation:Enum=low;medium;high
+type EffortLevel string
+
+const (
+	EffortLow    EffortLevel = "low"
+	EffortMedium EffortLevel = "medium"
+	EffortHigh   EffortLevel = "high"
+)
+
 // ClaudeConfig contains all Claude Code agent configuration options.
 // This mirrors the Helm chart's claude.* values.
 type ClaudeConfig struct {
@@ -101,7 +123,7 @@ type ClaudeConfig struct {
 	// PermissionMode controls tool permission handling.
 	// +kubebuilder:default=bypassPermissions
 	// +optional
-	PermissionMode string `json:"permissionMode,omitempty"`
+	PermissionMode PermissionMode `json:"permissionMode,omitempty"`
 
 	// SystemPrompt overrides the default system prompt.
 	// +optional
@@ -138,7 +160,7 @@ type ClaudeConfig struct {
 
 	// Effort controls thinking effort level (low, medium, high).
 	// +optional
-	Effort string `json:"effort,omitempty"`
+	Effort EffortLevel `json:"effort,omitempty"`
 
 	// FallbackModel specifies a fallback model if the primary is unavailable.
 	// +optional
@@ -199,6 +221,8 @@ type MCPServerSecret struct {
 }
 
 // PluginReference defines an OCI image reference for a Klaus plugin.
+// +kubebuilder:validation:XValidation:rule="!(has(self.tag) && has(self.digest))",message="tag and digest are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="has(self.tag) || has(self.digest)",message="must specify either tag or digest"
 type PluginReference struct {
 	// Repository is the OCI image repository.
 	Repository string `json:"repository"`
@@ -237,7 +261,7 @@ type SkillConfig struct {
 
 	// AllowedTools restricts which tools this skill can use.
 	// +optional
-	AllowedTools string `json:"allowedTools,omitempty"`
+	AllowedTools []string `json:"allowedTools,omitempty"`
 
 	// Model overrides the model for this skill.
 	// +optional
@@ -371,6 +395,15 @@ const (
 	InstanceStateStopped InstanceState = "Stopped"
 )
 
+// InstanceMode represents the process mode of a KlausInstance.
+// +kubebuilder:validation:Enum=single-shot;persistent
+type InstanceMode string
+
+const (
+	InstanceModeSingleShot InstanceMode = "single-shot"
+	InstanceModePersistent InstanceMode = "persistent"
+)
+
 // KlausInstanceStatus defines the observed state of a KlausInstance.
 type KlausInstanceStatus struct {
 	// State is the current lifecycle state.
@@ -383,7 +416,7 @@ type KlausInstanceStatus struct {
 
 	// Mode indicates the process mode (single-shot or persistent).
 	// +optional
-	Mode string `json:"mode,omitempty"`
+	Mode InstanceMode `json:"mode,omitempty"`
 
 	// LastActivity is the timestamp of the last activity.
 	// +optional

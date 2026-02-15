@@ -21,11 +21,8 @@ func BuildService(instance *klausv1alpha1.KlausInstance, namespace string) *core
 			Labels:    labels,
 		},
 		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
-			Selector: map[string]string{
-				"app.kubernetes.io/name":     "klaus",
-				"app.kubernetes.io/instance": instance.Name,
-			},
+			Type:     corev1.ServiceTypeClusterIP,
+			Selector: SelectorLabels(instance),
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "http",

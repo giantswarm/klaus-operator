@@ -41,6 +41,11 @@ func TestExtractUserFromToken(t *testing.T) {
 			wantUser: "admin@test.io",
 		},
 		{
+			name:     "with lowercase bearer prefix",
+			token:    "bearer " + buildTestJWT(`{"email":"admin@test.io"}`),
+			wantUser: "admin@test.io",
+		},
+		{
 			name:      "no email or sub",
 			token:     buildTestJWT(`{"name":"test"}`),
 			wantError: true,

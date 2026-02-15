@@ -18,6 +18,17 @@ func BuildMCPServerCRD(instance *klausv1alpha1.KlausInstance, instanceNamespace 
 
 	endpoint := ServiceEndpoint(instance, instanceNamespace)
 
+	spec := map[string]any{
+		"type": "streamable-http",
+		"url":  endpoint + "/mcp",
+		"auth": map[string]any{
+			"forwardToken": true,
+		},
+	}
+	if toolPrefix != "" {
+		spec["toolPrefix"] = toolPrefix
+	}
+
 	mcpServer := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "muster.giantswarm.io/v1alpha1",
@@ -31,14 +42,7 @@ func BuildMCPServerCRD(instance *klausv1alpha1.KlausInstance, instanceNamespace 
 					"klaus.giantswarm.io/owner":    sanitizeLabelValue(instance.Spec.Owner),
 				},
 			},
-			"spec": map[string]any{
-				"type": "streamable-http",
-				"url":  endpoint + "/mcp",
-				"auth": map[string]any{
-					"forwardToken": true,
-				},
-				"toolPrefix": toolPrefix,
-			},
+			"spec": spec,
 		},
 	}
 

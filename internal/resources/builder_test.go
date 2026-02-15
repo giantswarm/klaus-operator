@@ -32,6 +32,16 @@ func TestUserNamespace(t *testing.T) {
 			owner:    "user+tag@example.com",
 			expected: "klaus-user-user-tag-example-com",
 		},
+		{
+			name:     "long email truncation no trailing hyphen",
+			owner:    "aaaa@@@@@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccc",
+			expected: "klaus-user-aaaa-----bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		},
+		{
+			name:     "trailing hyphen after truncation is trimmed",
+			owner:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@b",
+			expected: "klaus-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
 	}
 
 	for _, tt := range tests {
