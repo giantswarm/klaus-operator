@@ -1,0 +1,85 @@
+# Default values for klaus-operator.
+
+image:
+  repository: gsoci.azurecr.io/giantswarm/klaus-operator
+  tag: ""  # Defaults to appVersion
+  pullPolicy: IfNotPresent
+
+# Klaus agent image used for instances.
+klausImage: gsoci.azurecr.io/giantswarm/klaus:latest
+
+# Namespace for the operator deployment.
+namespace: klaus-system
+
+# Number of replicas (should be 1 with leader election, or 1 without).
+replicaCount: 1
+
+# Leader election for HA deployments.
+leaderElection:
+  enabled: false
+
+# Shared Anthropic API key Secret.
+anthropicKeySecret:
+  name: anthropic-api-key
+  namespace: ""  # Defaults to operator namespace.
+
+# MCP server configuration.
+mcp:
+  # Port for the operator's MCP server.
+  port: 9090
+
+# Muster integration.
+muster:
+  # Namespace where MCPServer CRDs are created.
+  namespace: muster
+  # Whether to register the operator itself as an MCPServer in muster.
+  registerOperator: true
+
+# Resource requirements for the operator.
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Service account.
+serviceAccount:
+  create: true
+  name: ""  # Defaults to release name.
+  annotations: {}
+
+# Metrics and monitoring.
+metrics:
+  enabled: true
+  port: 8080
+
+# Health probes.
+probes:
+  port: 8081
+
+# Pod security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Node selector.
+nodeSelector: {}
+
+# Tolerations.
+tolerations: []
+
+# Affinity.
+affinity: {}
