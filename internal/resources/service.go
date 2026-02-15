@@ -1,6 +1,8 @@
 package resources
 
 import (
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -38,5 +40,5 @@ func BuildService(instance *klausv1alpha1.KlausInstance, namespace string) *core
 
 // ServiceEndpoint returns the internal service URL for a KlausInstance.
 func ServiceEndpoint(instance *klausv1alpha1.KlausInstance, namespace string) string {
-	return "http://" + ServiceName(instance) + "." + namespace + ".svc.cluster.local:" + "8080"
+	return "http://" + ServiceName(instance) + "." + namespace + ".svc.cluster.local:" + strconv.Itoa(KlausPort)
 }

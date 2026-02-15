@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -106,13 +107,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 2. Copy the Anthropic API key Secret.
-	apiKey, err := r.copyAPIKeySecret(ctx, &instance, namespace)
+	found, err := r.copyAPIKeySecret(ctx, &instance, namespace)
 	if err != nil {
 		return r.updateStatusError(ctx, &instance, "SecretError", err)
 	}
-	if apiKey == nil {
+	if !found {
 		logger.Info("Anthropic API key secret not found, requeuing")
-		return ctrl.Result{RequeueAfter: 30_000_000_000}, nil // 30s
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// 3. Create/update ConfigMap.
@@ -166,16 +167,37 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *KlausInstanceReconciler) ensureNamespace(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
-	ns := resources.BuildNamespace(instance)
+	desired := resources.BuildNamespace(instance)
 	existing := &corev1.Namespace{}
 	err := r.Get(ctx, types.NamespacedName{Name: namespace}, existing)
 	if apierrors.IsNotFound(err) {
-		return r.Create(ctx, ns)
+		return r.Create(ctx, desired)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Reconcile labels on existing namespace.
+	needsUpdate := false
+	if existing.Labels == nil {
+		existing.Labels = make(map[string]string)
+	}
+	for k, v := range desired.Labels {
+		if existing.Labels[k] != v {
+			existing.Labels[k] = v
+			needsUpdate = true
+		}
+	}
+	if needsUpdate {
+		return r.Update(ctx, existing)
+	}
+	return nil
 }
 
-func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) ([]byte, error) {
+// copyAPIKeySecret copies the shared Anthropic API key Secret into the
+// instance namespace. Returns (true, nil) on success, (false, nil) if the
+// source secret does not exist yet, or (false, err) on failure.
+func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (bool, error) {
 	// Read the shared org secret.
 	srcSecret := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -184,14 +206,14 @@ func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance
 	}, srcSecret)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, nil
+			return false, nil
 		}
-		return nil, fmt.Errorf("fetching Anthropic API key secret: %w", err)
+		return false, fmt.Errorf("fetching Anthropic API key secret: %w", err)
 	}
 
 	apiKey, ok := srcSecret.Data["api-key"]
 	if !ok {
-		return nil, fmt.Errorf("Anthropic API key secret missing 'api-key' field")
+		return false, fmt.Errorf("Anthropic API key secret missing 'api-key' field")
 	}
 
 	// Create or update the secret in the instance namespace.
@@ -199,15 +221,15 @@ func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance
 	existing := &corev1.Secret{}
 	err = r.Get(ctx, types.NamespacedName{Name: destSecret.Name, Namespace: namespace}, existing)
 	if apierrors.IsNotFound(err) {
-		return apiKey, r.Create(ctx, destSecret)
+		return true, r.Create(ctx, destSecret)
 	}
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	// Update if data changed.
 	existing.Data = destSecret.Data
-	return apiKey, r.Update(ctx, existing)
+	return true, r.Update(ctx, existing)
 }
 
 func (r *KlausInstanceReconciler) reconcileConfigMap(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *corev1.ConfigMap) error {
@@ -304,10 +326,7 @@ func (r *KlausInstanceReconciler) reconcileMCPServer(ctx context.Context, instan
 		Kind:    "MCPServer",
 	})
 
-	musterNamespace := "muster"
-	if instance.Spec.Muster != nil && instance.Spec.Muster.Namespace != "" {
-		musterNamespace = instance.Spec.Muster.Namespace
-	}
+	musterNamespace := resources.MusterNamespace(instance)
 
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      "klaus-" + instance.Name,
@@ -320,9 +339,9 @@ func (r *KlausInstanceReconciler) reconcileMCPServer(ctx context.Context, instan
 		return err
 	}
 
-	// Update the spec.
+	// Update the spec and labels using typed accessors to avoid panics.
 	existing.Object["spec"] = desired.Object["spec"]
-	existing.Object["metadata"].(map[string]any)["labels"] = desired.Object["metadata"].(map[string]any)["labels"]
+	existing.SetLabels(desired.GetLabels())
 	return r.Update(ctx, existing)
 }
 
@@ -373,10 +392,7 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 	}
 
 	// Clean up cross-namespace MCPServer CRD.
-	musterNamespace := "muster"
-	if instance.Spec.Muster != nil && instance.Spec.Muster.Namespace != "" {
-		musterNamespace = instance.Spec.Muster.Namespace
-	}
+	musterNamespace := resources.MusterNamespace(instance)
 
 	mcpServer := &unstructured.Unstructured{}
 	mcpServer.SetGroupVersionKind(schema.GroupVersionKind{

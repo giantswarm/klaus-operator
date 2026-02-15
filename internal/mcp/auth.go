@@ -45,9 +45,10 @@ func ExtractUserFromToken(token string) (string, error) {
 		return "", fmt.Errorf("no token provided")
 	}
 
-	// Strip "Bearer " prefix.
-	token = strings.TrimPrefix(token, "Bearer ")
-	token = strings.TrimPrefix(token, "bearer ")
+	// Strip "Bearer " prefix (case-insensitive per RFC 6750).
+	if len(token) > 7 && strings.EqualFold(token[:7], "bearer ") {
+		token = token[7:]
+	}
 
 	// JWT has three parts separated by dots.
 	parts := strings.Split(token, ".")

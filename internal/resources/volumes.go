@@ -1,8 +1,9 @@
 package resources
 
 import (
+	"maps"
 	"path"
-	"sort"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
@@ -45,10 +46,8 @@ func BuildVolumes(instance *klausv1alpha1.KlausInstance, configMapName string) [
 			Name: PluginVolumeName(plugin),
 			VolumeSource: corev1.VolumeSource{
 				Image: &corev1.ImageVolumeSource{
-					Reference: PluginImageReference(plugin),
-					PullPolicy: func() corev1.PullPolicy {
-						return corev1.PullIfNotPresent
-					}(),
+					Reference:  PluginImageReference(plugin),
+					PullPolicy: corev1.PullIfNotPresent,
 				},
 			},
 		})
@@ -84,12 +83,7 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 	}
 
 	// Skills mounts.
-	skillNames := make([]string, 0, len(instance.Spec.Skills))
-	for name := range instance.Spec.Skills {
-		skillNames = append(skillNames, name)
-	}
-	sort.Strings(skillNames)
-	for _, name := range skillNames {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.Skills)) {
 		mounts = append(mounts, corev1.VolumeMount{
 			Name:      ConfigVolumeName,
 			MountPath: path.Join(ExtensionsBasePath, ".claude/skills", name, "SKILL.md"),
@@ -99,12 +93,7 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 	}
 
 	// Agent file mounts.
-	agentFileNames := make([]string, 0, len(instance.Spec.AgentFiles))
-	for name := range instance.Spec.AgentFiles {
-		agentFileNames = append(agentFileNames, name)
-	}
-	sort.Strings(agentFileNames)
-	for _, name := range agentFileNames {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.AgentFiles)) {
 		mounts = append(mounts, corev1.VolumeMount{
 			Name:      ConfigVolumeName,
 			MountPath: path.Join(ExtensionsBasePath, ".claude/agents", name+".md"),
@@ -125,12 +114,7 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 
 	// Hook script mounts (from executable volume).
 	if NeedsScriptsVolume(instance) {
-		scriptNames := make([]string, 0, len(instance.Spec.HookScripts))
-		for name := range instance.Spec.HookScripts {
-			scriptNames = append(scriptNames, name)
-		}
-		sort.Strings(scriptNames)
-		for _, name := range scriptNames {
+		for _, name := range slices.Sorted(maps.Keys(instance.Spec.HookScripts)) {
 			mounts = append(mounts, corev1.VolumeMount{
 				Name:      ConfigScriptsVolumeName,
 				MountPath: path.Join(HookScriptsPath, name),
@@ -162,12 +146,7 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 
 func buildScriptItems(instance *klausv1alpha1.KlausInstance) []corev1.KeyToPath {
 	var items []corev1.KeyToPath
-	names := make([]string, 0, len(instance.Spec.HookScripts))
-	for name := range instance.Spec.HookScripts {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.HookScripts)) {
 		items = append(items, corev1.KeyToPath{
 			Key:  "hookscript-" + name,
 			Path: "hookscript-" + name,

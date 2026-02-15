@@ -115,70 +115,27 @@ func (s *Server) handleListInstances(ctx context.Context, _ mcpgolang.CallToolRe
 
 // handleDeleteInstance deletes a KlausInstance (owner-only).
 func (s *Server) handleDeleteInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	user, err := s.extractUser(ctx)
-	if err != nil {
-		return mcpError("authentication required: " + err.Error()), nil
+	instance, errResult := s.getOwnedInstance(ctx, request)
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	args := request.GetArguments()
-	name, _ := args["name"].(string)
-	if name == "" {
-		return mcpError("name is required"), nil
-	}
-
-	// Fetch instance and verify ownership.
-	var instance klausv1alpha1.KlausInstance
-	if err := s.client.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: s.operatorNamespace,
-	}, &instance); err != nil {
-		if apierrors.IsNotFound(err) {
-			return mcpError("instance '" + name + "' not found"), nil
-		}
-		return mcpError("failed to get instance: " + err.Error()), nil
-	}
-
-	if instance.Spec.Owner != user {
-		return mcpError("access denied: you do not own instance '" + name + "'"), nil
-	}
-
-	if err := s.client.Delete(ctx, &instance); err != nil {
+	if err := s.client.Delete(ctx, instance); err != nil {
 		return mcpError("failed to delete instance: " + err.Error()), nil
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    name,
+		"name":    instance.Name,
 		"status":  "deleting",
-		"message": "Instance '" + name + "' is being deleted",
+		"message": "Instance '" + instance.Name + "' is being deleted",
 	}), nil
 }
 
 // handleGetInstance returns details about a KlausInstance.
 func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	user, err := s.extractUser(ctx)
-	if err != nil {
-		return mcpError("authentication required: " + err.Error()), nil
-	}
-
-	args := request.GetArguments()
-	name, _ := args["name"].(string)
-	if name == "" {
-		return mcpError("name is required"), nil
-	}
-
-	var instance klausv1alpha1.KlausInstance
-	if err := s.client.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: s.operatorNamespace,
-	}, &instance); err != nil {
-		if apierrors.IsNotFound(err) {
-			return mcpError("instance '" + name + "' not found"), nil
-		}
-		return mcpError("failed to get instance: " + err.Error()), nil
-	}
-
-	if instance.Spec.Owner != user {
-		return mcpError("access denied: you do not own instance '" + name + "'"), nil
+	instance, errResult := s.getOwnedInstance(ctx, request)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	result := map[string]any{
@@ -204,42 +161,20 @@ func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallTo
 
 // handleRestartInstance restarts a KlausInstance by cycling its Deployment.
 func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	user, err := s.extractUser(ctx)
-	if err != nil {
-		return mcpError("authentication required: " + err.Error()), nil
-	}
-
-	args := request.GetArguments()
-	name, _ := args["name"].(string)
-	if name == "" {
-		return mcpError("name is required"), nil
-	}
-
-	// Fetch instance and verify ownership.
-	var instance klausv1alpha1.KlausInstance
-	if err := s.client.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: s.operatorNamespace,
-	}, &instance); err != nil {
-		if apierrors.IsNotFound(err) {
-			return mcpError("instance '" + name + "' not found"), nil
-		}
-		return mcpError("failed to get instance: " + err.Error()), nil
-	}
-
-	if instance.Spec.Owner != user {
-		return mcpError("access denied: you do not own instance '" + name + "'"), nil
+	instance, errResult := s.getOwnedInstance(ctx, request)
+	if errResult != nil {
+		return errResult, nil
 	}
 
 	// Restart by patching the Deployment with a restart annotation.
 	namespace := resources.UserNamespace(instance.Spec.Owner)
 	var deployment appsv1.Deployment
 	if err := s.client.Get(ctx, types.NamespacedName{
-		Name:      name,
+		Name:      instance.Name,
 		Namespace: namespace,
 	}, &deployment); err != nil {
 		if apierrors.IsNotFound(err) {
-			return mcpError("deployment for instance '" + name + "' not found (instance may still be starting)"), nil
+			return mcpError("deployment for instance '" + instance.Name + "' not found (instance may still be starting)"), nil
 		}
 		return mcpError("failed to get deployment: " + err.Error()), nil
 	}
@@ -255,10 +190,43 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    name,
+		"name":    instance.Name,
 		"status":  "restarting",
-		"message": "Instance '" + name + "' is being restarted",
+		"message": "Instance '" + instance.Name + "' is being restarted",
 	}), nil
+}
+
+// getOwnedInstance extracts the user and instance name from a tool request,
+// fetches the KlausInstance, and verifies ownership. Returns the instance on
+// success, or an MCP error result on failure.
+func (s *Server) getOwnedInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*klausv1alpha1.KlausInstance, *mcpgolang.CallToolResult) {
+	user, err := s.extractUser(ctx)
+	if err != nil {
+		return nil, mcpError("authentication required: " + err.Error())
+	}
+
+	args := request.GetArguments()
+	name, _ := args["name"].(string)
+	if name == "" {
+		return nil, mcpError("name is required")
+	}
+
+	var instance klausv1alpha1.KlausInstance
+	if err := s.client.Get(ctx, types.NamespacedName{
+		Name:      name,
+		Namespace: s.operatorNamespace,
+	}, &instance); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, mcpError("instance '" + name + "' not found")
+		}
+		return nil, mcpError("failed to get instance: " + err.Error())
+	}
+
+	if instance.Spec.Owner != user {
+		return nil, mcpError("access denied: you do not own instance '" + name + "'")
+	}
+
+	return &instance, nil
 }
 
 // extractUser extracts the user identity from the request context.

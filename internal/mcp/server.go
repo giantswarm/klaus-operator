@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"log/slog"
 
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
@@ -10,17 +11,20 @@ import (
 
 // Server is the MCP server for the klaus-operator, exposing tools to
 // create, list, delete, get, and restart KlausInstance resources.
+// It implements manager.Runnable so it can be managed by controller-runtime.
 type Server struct {
 	client            client.Client
 	operatorNamespace string
+	addr              string
 	httpServer        *server.StreamableHTTPServer
 }
 
 // NewServer creates a new MCP server backed by the given Kubernetes client.
-func NewServer(c client.Client, operatorNamespace string) *Server {
+func NewServer(c client.Client, operatorNamespace, addr string) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
+		addr:              addr,
 	}
 
 	// Create the MCP server.
@@ -70,8 +74,28 @@ func NewServer(c client.Client, operatorNamespace string) *Server {
 	return s
 }
 
-// Start starts the MCP server on the given address using streamable-http transport.
-func (s *Server) Start(addr string) error {
-	slog.Info("starting MCP server", "addr", addr)
-	return s.httpServer.Start(addr)
+// Start implements manager.Runnable. It starts the MCP server and shuts it
+// down gracefully when the context is cancelled (i.e. when the manager stops).
+func (s *Server) Start(ctx context.Context) error {
+	slog.Info("starting MCP server", "addr", s.addr)
+
+	// Start listening in a goroutine so we can wait on context cancellation.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.httpServer.Start(s.addr)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		slog.Info("shutting down MCP server")
+		return s.httpServer.Shutdown(context.Background())
+	}
+}
+
+// NeedLeaderElection implements manager.LeaderElectionRunnable to indicate the
+// MCP server should run regardless of leader election status.
+func (s *Server) NeedLeaderElection() bool {
+	return false
 }

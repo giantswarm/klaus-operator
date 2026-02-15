@@ -10,12 +10,9 @@ import (
 // Klaus instance in muster. We use an unstructured object to avoid importing
 // muster's types.
 func BuildMCPServerCRD(instance *klausv1alpha1.KlausInstance, instanceNamespace string) *unstructured.Unstructured {
-	musterNamespace := "muster"
+	musterNamespace := MusterNamespace(instance)
 	toolPrefix := ""
 	if instance.Spec.Muster != nil {
-		if instance.Spec.Muster.Namespace != "" {
-			musterNamespace = instance.Spec.Muster.Namespace
-		}
 		toolPrefix = instance.Spec.Muster.ToolPrefix
 	}
 

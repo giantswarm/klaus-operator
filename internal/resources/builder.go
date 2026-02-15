@@ -4,11 +4,11 @@ package resources
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
@@ -50,18 +50,8 @@ var sanitizeRegexp = regexp.MustCompile(`[^a-z0-9-]`)
 
 // UserNamespace returns the namespace name for a given owner.
 func UserNamespace(owner string) string {
-	sanitized := strings.ToLower(owner)
-	// Replace @ and . with hyphens.
-	sanitized = strings.ReplaceAll(sanitized, "@", "-")
-	sanitized = strings.ReplaceAll(sanitized, ".", "-")
-	sanitized = sanitizeRegexp.ReplaceAllString(sanitized, "-")
-	// Trim leading/trailing hyphens.
-	sanitized = strings.Trim(sanitized, "-")
-	// Truncate if necessary (namespace max is 63 chars, prefix is 11).
-	if len(sanitized) > 50 {
-		sanitized = sanitized[:50]
-	}
-	return "klaus-user-" + sanitized
+	// Prefix is 11 chars; namespace max is 63.
+	return "klaus-user-" + sanitizeIdentifier(owner, 50)
 }
 
 // InstanceLabels returns standard labels for resources owned by the instance.
@@ -121,15 +111,8 @@ func PluginMountPath(plugin klausv1alpha1.PluginReference) string {
 // ConfigMapChecksum computes a SHA256 checksum of the ConfigMap data for
 // triggering pod restarts on config changes.
 func ConfigMapChecksum(data map[string]string) string {
-	// Sort keys for deterministic output.
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
 	h := sha256.New()
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(data)) {
 		fmt.Fprintf(h, "%s=%s\n", k, data[k])
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
@@ -146,6 +129,14 @@ func NeedsScriptsVolume(instance *klausv1alpha1.KlausInstance) bool {
 	return len(instance.Spec.HookScripts) > 0
 }
 
+// MusterNamespace returns the target namespace for MCPServer CRD registration.
+func MusterNamespace(instance *klausv1alpha1.KlausInstance) string {
+	if instance.Spec.Muster != nil && instance.Spec.Muster.Namespace != "" {
+		return instance.Spec.Muster.Namespace
+	}
+	return "muster"
+}
+
 // HasMCPConfig returns true if any MCP servers are configured.
 func HasMCPConfig(instance *klausv1alpha1.KlausInstance) bool {
 	return len(instance.Spec.Claude.MCPServers) > 0 || len(instance.Spec.MCPServers) > 0
@@ -156,23 +147,20 @@ func HasHooks(instance *klausv1alpha1.KlausInstance) bool {
 	return len(instance.Spec.Hooks) > 0
 }
 
-// MarshalJSONMap serializes a map of RawExtensions to a JSON string.
-func MarshalJSONMap(m map[string]json.RawMessage) (string, error) {
-	data, err := json.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("marshaling JSON map: %w", err)
-	}
-	return string(data), nil
+func sanitizeLabelValue(s string) string {
+	return sanitizeIdentifier(s, 63)
 }
 
-func sanitizeLabelValue(s string) string {
+// sanitizeIdentifier converts a string to a DNS-safe identifier by lowercasing,
+// replacing non-alphanumeric characters with hyphens, and trimming/truncating.
+func sanitizeIdentifier(s string, maxLen int) string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, "@", "-")
 	s = strings.ReplaceAll(s, ".", "-")
 	s = sanitizeRegexp.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
-	if len(s) > 63 {
-		s = s[:63]
+	if len(s) > maxLen {
+		s = s[:maxLen]
 	}
 	return s
 }

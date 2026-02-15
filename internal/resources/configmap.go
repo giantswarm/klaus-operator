@@ -3,7 +3,8 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,7 +33,7 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*c
 
 	// MCP config (inline mcpServers rendered as {"mcpServers": {...}}).
 	if len(instance.Spec.Claude.MCPServers) > 0 {
-		mcpConfig, err := buildMCPConfigJSON(instance.Spec.Claude.MCPServers)
+		mcpConfig, err := marshalRawExtensionMap(instance.Spec.Claude.MCPServers, "mcpServers")
 		if err != nil {
 			return nil, fmt.Errorf("building MCP config: %w", err)
 		}
@@ -46,7 +47,7 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*c
 
 	// Agents JSON.
 	if len(instance.Spec.Claude.Agents) > 0 {
-		agentsJSON, err := buildAgentsJSON(instance.Spec.Claude.Agents)
+		agentsJSON, err := marshalRawExtensionMap(instance.Spec.Claude.Agents, "")
 		if err != nil {
 			return nil, fmt.Errorf("building agents JSON: %w", err)
 		}
@@ -54,22 +55,20 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*c
 	}
 
 	// Skills (SKILL.md with YAML frontmatter).
-	skillNames := sortedSkillKeys(instance.Spec.Skills)
-	for _, name := range skillNames {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.Skills)) {
 		skill := instance.Spec.Skills[name]
 		data["skill-"+name] = renderSkillMD(skill)
 	}
 
 	// Agent files (raw markdown).
-	agentFileNames := sortedAgentFileKeys(instance.Spec.AgentFiles)
-	for _, name := range agentFileNames {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.AgentFiles)) {
 		agentFile := instance.Spec.AgentFiles[name]
 		data["agentfile-"+name] = agentFile.Content
 	}
 
 	// Hooks (rendered to settings.json).
 	if HasHooks(instance) {
-		hooksJSON, err := buildHooksJSON(instance.Spec.Hooks)
+		hooksJSON, err := marshalRawExtensionMap(instance.Spec.Hooks, "hooks")
 		if err != nil {
 			return nil, fmt.Errorf("building hooks JSON: %w", err)
 		}
@@ -77,8 +76,7 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*c
 	}
 
 	// Hook scripts.
-	scriptNames := sortedStringMapKeys(instance.Spec.HookScripts)
-	for _, name := range scriptNames {
+	for _, name := range slices.Sorted(maps.Keys(instance.Spec.HookScripts)) {
 		data["hookscript-"+name] = instance.Spec.HookScripts[name]
 	}
 
@@ -94,48 +92,21 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*c
 	return cm, nil
 }
 
-func buildMCPConfigJSON(mcpServers map[string]runtime.RawExtension) (string, error) {
-	// Convert RawExtension values to json.RawMessage for marshaling.
-	servers := make(map[string]json.RawMessage, len(mcpServers))
-	for name, raw := range mcpServers {
-		servers[name] = json.RawMessage(raw.Raw)
+// marshalRawExtensionMap converts a map of RawExtensions to a JSON string.
+// If wrapperKey is non-empty, the map is wrapped under that key; otherwise
+// it is serialized directly.
+func marshalRawExtensionMap(m map[string]runtime.RawExtension, wrapperKey string) (string, error) {
+	raw := make(map[string]json.RawMessage, len(m))
+	for name, ext := range m {
+		raw[name] = json.RawMessage(ext.Raw)
 	}
 
-	wrapper := map[string]any{
-		"mcpServers": servers,
-	}
-	data, err := json.MarshalIndent(wrapper, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func buildAgentsJSON(agents map[string]runtime.RawExtension) (string, error) {
-	// Convert RawExtension values to json.RawMessage for marshaling.
-	m := make(map[string]json.RawMessage, len(agents))
-	for name, raw := range agents {
-		m[name] = json.RawMessage(raw.Raw)
+	var target any = raw
+	if wrapperKey != "" {
+		target = map[string]any{wrapperKey: raw}
 	}
 
-	data, err := json.Marshal(m)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func buildHooksJSON(hooks map[string]runtime.RawExtension) (string, error) {
-	// Convert RawExtension values to json.RawMessage for marshaling.
-	m := make(map[string]json.RawMessage, len(hooks))
-	for name, raw := range hooks {
-		m[name] = json.RawMessage(raw.Raw)
-	}
-
-	wrapper := map[string]any{
-		"hooks": m,
-	}
-	data, err := json.MarshalIndent(wrapper, "", "  ")
+	data, err := json.MarshalIndent(target, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -182,31 +153,4 @@ func renderSkillMD(skill klausv1alpha1.SkillConfig) string {
 	}
 
 	return b.String()
-}
-
-func sortedSkillKeys(m map[string]klausv1alpha1.SkillConfig) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func sortedAgentFileKeys(m map[string]klausv1alpha1.AgentFileConfig) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func sortedStringMapKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

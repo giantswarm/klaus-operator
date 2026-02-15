@@ -27,10 +27,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Status conditions (`Ready`, `ConfigReady`, `DeploymentReady`, `MCPServerReady`) populated during reconciliation.
 - Stub CRDs for KlausPersonality and KlausMCPServer in the Helm chart (full implementation in #3 and #5).
 
+### Changed
+
+- MCP server is now wired through controller-runtime's manager for graceful shutdown instead of a bare goroutine with `os.Exit`.
+- Replaced `copyAPIKeySecret` dead `[]byte` return with `(bool, error)` for clarity.
+- Unified `UserNamespace` and `sanitizeLabelValue` into a shared `sanitizeIdentifier` helper.
+- Extracted `getOwnedInstance` helper in MCP tool handlers to reduce repetition.
+- Replaced manual sort-map-keys helpers with `slices.Sorted(maps.Keys(...))` (Go 1.25).
+- Unified `buildMCPConfigJSON`, `buildAgentsJSON`, and `buildHooksJSON` into a single `marshalRawExtensionMap` function.
+- Extracted `MusterNamespace` helper to eliminate duplicated namespace resolution logic.
+- `ServiceEndpoint` now uses `KlausPort` constant instead of a hardcoded `"8080"` string.
+- `ensureNamespace` now reconciles labels on existing namespaces, fixing stale owner labels.
+
 ### Fixed
 
+- Fixed potential panic in `reconcileMCPServer` from unsafe type assertion on unstructured metadata; replaced with `SetLabels`/`GetLabels`.
+- Fixed case-insensitive Bearer token stripping per RFC 6750; previously only matched `Bearer` and `bearer`.
 - Cross-namespace resource management: replaced `Owns()` with label-based watches using `builder.WithPredicates` and `LabelSelectorPredicate`, since owner references cannot cross namespace boundaries.
 - Deletion now cleans up all in-namespace resources (Deployment, Service, ConfigMap, Secret, ServiceAccount, PVC) in addition to the cross-namespace MCPServer CRD.
+
+### Removed
+
+- Removed unused exported `MarshalJSONMap` function.
 
 
 

@@ -99,15 +99,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start the MCP server in a separate goroutine.
-	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace)
-	go func() {
-		setupLog.Info("starting MCP server", "addr", mcpAddr)
-		if err := mcpServer.Start(mcpAddr); err != nil {
-			setupLog.Error(err, "MCP server failed")
-			os.Exit(1)
-		}
-	}()
+	// Add the MCP server as a manager runnable for graceful lifecycle management.
+	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr)
+	if err := mgr.Add(mcpServer); err != nil {
+		setupLog.Error(err, "unable to add MCP server to manager")
+		os.Exit(1)
+	}
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
