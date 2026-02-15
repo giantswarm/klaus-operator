@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "klaus-operator.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "klaus-operator.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "klaus-operator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mcp
+      port: {{ .Values.mcp.port }}
+      targetPort: mcp
+      protocol: TCP
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}

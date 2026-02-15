@@ -1,0 +1,49 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "klaus-operator.fullname" . }}
+  labels:
+    {{- include "klaus-operator.labels" . | nindent 4 }}
+rules:
+  # KlausInstance CRD management.
+  - apiGroups: ["klaus.giantswarm.io"]
+    resources: ["klausinstances"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["klaus.giantswarm.io"]
+    resources: ["klausinstances/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["klaus.giantswarm.io"]
+    resources: ["klausinstances/finalizers"]
+    verbs: ["update"]
+  # KlausPersonality CRD (read-only for resolving personalityRef).
+  - apiGroups: ["klaus.giantswarm.io"]
+    resources: ["klauspersonalities"]
+    verbs: ["get", "list", "watch"]
+  # KlausMCPServer CRD (read-only for resolving MCP server refs).
+  - apiGroups: ["klaus.giantswarm.io"]
+    resources: ["klausmcpservers"]
+    verbs: ["get", "list", "watch"]
+  # Namespace management for user namespaces.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  # Core resources in user namespaces.
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "persistentvolumeclaims", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Deployment management.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events for status reporting.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # MCPServer CRD in muster namespace.
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["mcpservers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leader election.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

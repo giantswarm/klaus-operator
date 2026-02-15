@@ -1,0 +1,14 @@
+{{- if .Values.muster.registerOperator }}
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: klaus-operator
+  namespace: {{ .Values.muster.namespace }}
+  labels:
+    {{- include "klaus-operator.labels" . | nindent 4 }}
+spec:
+  type: streamable-http
+  url: http://{{ include "klaus-operator.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.mcp.port }}/mcp
+  auth:
+    forwardToken: true
+{{- end }}

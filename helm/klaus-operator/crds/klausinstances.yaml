@@ -1,0 +1,346 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: klausinstances.klaus.giantswarm.io
+  annotations:
+    controller-gen.kubebuilder.io/version: (devel)
+spec:
+  group: klaus.giantswarm.io
+  names:
+    kind: KlausInstance
+    listKind: KlausInstanceList
+    plural: klausinstances
+    singular: klausinstance
+    shortNames:
+      - ki
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Owner
+          type: string
+          jsonPath: .spec.owner
+        - name: Personality
+          type: string
+          jsonPath: .status.personality
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: KlausInstance is the Schema for the klausinstances API.
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: KlausInstanceSpec defines the desired state of a KlausInstance.
+              type: object
+              required:
+                - owner
+              properties:
+                personalityRef:
+                  description: Reference to a KlausPersonality template.
+                  type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                owner:
+                  description: User identity (email) that owns this instance.
+                  type: string
+                claude:
+                  description: Claude Code agent configuration.
+                  type: object
+                  properties:
+                    model:
+                      type: string
+                    maxTurns:
+                      type: integer
+                    permissionMode:
+                      type: string
+                      default: bypassPermissions
+                    systemPrompt:
+                      type: string
+                    appendSystemPrompt:
+                      type: string
+                    mcpServers:
+                      description: Inline MCP server config (free-form map).
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    mcpServerSecrets:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - secretName
+                          - env
+                        properties:
+                          secretName:
+                            type: string
+                          env:
+                            type: object
+                            additionalProperties:
+                              type: string
+                    mcpTimeout:
+                      type: integer
+                    maxMcpOutputTokens:
+                      type: integer
+                    strictMcpConfig:
+                      type: boolean
+                      default: true
+                    maxBudgetUSD:
+                      type: number
+                    effort:
+                      type: string
+                    fallbackModel:
+                      type: string
+                    jsonSchema:
+                      type: string
+                    settingsFile:
+                      type: string
+                    settingSources:
+                      type: string
+                    tools:
+                      type: array
+                      items:
+                        type: string
+                    allowedTools:
+                      type: array
+                      items:
+                        type: string
+                    disallowedTools:
+                      type: array
+                      items:
+                        type: string
+                    agents:
+                      description: JSON-format subagent configurations.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    activeAgent:
+                      type: string
+                    persistentMode:
+                      type: boolean
+                    includePartialMessages:
+                      type: boolean
+                    noSessionPersistence:
+                      type: boolean
+                plugins:
+                  description: OCI image references for plugins.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - repository
+                    properties:
+                      repository:
+                        type: string
+                      tag:
+                        type: string
+                      digest:
+                        type: string
+                mcpServers:
+                  description: References to KlausMCPServer CRDs.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                skills:
+                  description: Inline skill configurations.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required:
+                      - content
+                    properties:
+                      description:
+                        type: string
+                      content:
+                        type: string
+                      disableModelInvocation:
+                        type: boolean
+                      userInvocable:
+                        type: boolean
+                      allowedTools:
+                        type: string
+                      model:
+                        type: string
+                      context:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      agent:
+                        type: string
+                      argumentHint:
+                        type: string
+                agentFiles:
+                  description: Inline markdown subagent definitions.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required:
+                      - content
+                    properties:
+                      content:
+                        type: string
+                hooks:
+                  description: Lifecycle hooks (rendered to settings.json).
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                hookScripts:
+                  description: Executable scripts for hooks.
+                  type: object
+                  additionalProperties:
+                    type: string
+                addDirs:
+                  type: array
+                  items:
+                    type: string
+                loadAdditionalDirsMemory:
+                  type: boolean
+                workspace:
+                  description: Persistent workspace configuration.
+                  type: object
+                  properties:
+                    storageClass:
+                      type: string
+                    size:
+                      anyOf:
+                        - type: integer
+                        - type: string
+                      x-kubernetes-int-or-string: true
+                      default: 5Gi
+                    gitRepo:
+                      type: string
+                    gitRef:
+                      type: string
+                resources:
+                  description: Compute resource requirements.
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                    requests:
+                      type: object
+                      additionalProperties:
+                        anyOf:
+                          - type: integer
+                          - type: string
+                        x-kubernetes-int-or-string: true
+                telemetry:
+                  description: OpenTelemetry configuration.
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    metricsExporter:
+                      type: string
+                    logsExporter:
+                      type: string
+                    otlp:
+                      type: object
+                      properties:
+                        protocol:
+                          type: string
+                        endpoint:
+                          type: string
+                        headers:
+                          type: string
+                    metricExportIntervalMs:
+                      type: integer
+                    logsExportIntervalMs:
+                      type: integer
+                    logUserPrompts:
+                      type: boolean
+                    logToolDetails:
+                      type: boolean
+                    includeSessionId:
+                      type: boolean
+                    includeVersion:
+                      type: boolean
+                    includeAccountUuid:
+                      type: boolean
+                    resourceAttributes:
+                      type: string
+                muster:
+                  description: MCPServer CRD registration config.
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                      default: muster
+                    toolPrefix:
+                      type: string
+            status:
+              description: KlausInstanceStatus defines the observed state.
+              type: object
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - Pending
+                    - Running
+                    - Error
+                    - Stopped
+                endpoint:
+                  type: string
+                mode:
+                  type: string
+                lastActivity:
+                  type: string
+                  format: date-time
+                personality:
+                  type: string
+                pluginCount:
+                  type: integer
+                mcpServerCount:
+                  type: integer
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                observedGeneration:
+                  type: integer
+                  format: int64
