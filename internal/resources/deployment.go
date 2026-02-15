@@ -54,6 +54,7 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: instance.Name,
+					ImagePullSecrets:   buildImagePullSecrets(instance),
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsUser:  ptr.To(int64(1000)),
 						RunAsGroup: ptr.To(int64(1000)),
@@ -114,4 +115,17 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 	}
 
 	return dep
+}
+
+// buildImagePullSecrets converts the list of pull secret names to
+// LocalObjectReferences for the pod spec.
+func buildImagePullSecrets(instance *klausv1alpha1.KlausInstance) []corev1.LocalObjectReference {
+	if len(instance.Spec.ImagePullSecrets) == 0 {
+		return nil
+	}
+	refs := make([]corev1.LocalObjectReference, 0, len(instance.Spec.ImagePullSecrets))
+	for _, name := range instance.Spec.ImagePullSecrets {
+		refs = append(refs, corev1.LocalObjectReference{Name: name})
+	}
+	return refs
 }

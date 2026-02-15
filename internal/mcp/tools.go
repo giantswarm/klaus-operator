@@ -262,14 +262,14 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 }
 
 // extractUser extracts the user identity from the request context.
-// In production, this comes from the forwarded JWT token via muster.
+// The Authorization header is injected into context by HTTPContextFuncAuth via
+// mcp-go's WithHTTPContextFunc. The token is a JWT forwarded by muster.
 func (s *Server) extractUser(ctx context.Context) (string, error) {
-	// Try to extract from context (set by middleware or transport).
-	// For streamable-http with muster, the token is forwarded in the
-	// Authorization header. We extract the user from the JWT payload.
-	// TODO: Implement proper token extraction from context when mcp-go
-	// supports request header access. For now, return a placeholder.
-	return "", fmt.Errorf("user extraction not yet implemented -- use direct API")
+	token := AuthTokenFromContext(ctx)
+	if token == "" {
+		return "", fmt.Errorf("no Authorization header in request")
+	}
+	return ExtractUserFromToken(token)
 }
 
 func mcpSuccess(data any) *mcpgolang.CallToolResult {

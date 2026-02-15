@@ -14,9 +14,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/resources"
@@ -82,6 +86,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// Validate the spec.
+	if err := resources.ValidateSpec(&instance); err != nil {
+		return r.updateStatusError(ctx, &instance, "ValidationError", err)
+	}
+
 	// Determine the target namespace.
 	namespace := resources.UserNamespace(instance.Spec.Owner)
 
@@ -109,11 +118,14 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 3. Create/update ConfigMap.
 	cm, err := resources.BuildConfigMap(&instance, namespace)
 	if err != nil {
+		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "BuildError", err.Error())
 		return r.updateStatusError(ctx, &instance, "ConfigMapError", err)
 	}
 	if err := r.reconcileConfigMap(ctx, &instance, cm); err != nil {
+		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "ConfigMapError", err)
 	}
+	setCondition(&instance, ConditionConfigReady, metav1.ConditionTrue, "Reconciled", "ConfigMap reconciled")
 
 	// 4. Create/update PVC (if workspace configured).
 	if err := r.reconcilePVC(ctx, &instance, namespace); err != nil {
@@ -128,8 +140,10 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 6. Create/update Deployment.
 	dep := resources.BuildDeployment(&instance, namespace, r.KlausImage, cm.Data)
 	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
+		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
 	}
+	setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Reconciled", "Deployment reconciled")
 
 	// 7. Create/update Service.
 	svc := resources.BuildService(&instance, namespace)
@@ -142,6 +156,9 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// MCPServer creation failure is not fatal -- log and continue.
 		logger.Error(err, "failed to reconcile MCPServer CRD")
 		r.Recorder.Event(&instance, corev1.EventTypeWarning, "MCPServerError", err.Error())
+		setCondition(&instance, ConditionMCPServerReady, metav1.ConditionFalse, "ReconcileError", err.Error())
+	} else {
+		setCondition(&instance, ConditionMCPServerReady, metav1.ConditionTrue, "Reconciled", "MCPServer CRD reconciled")
 	}
 
 	// 9. Update status.
@@ -313,6 +330,48 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 	logger := log.FromContext(ctx)
 	logger.Info("reconciling deletion", "instance", instance.Name)
 
+	namespace := resources.UserNamespace(instance.Spec.Owner)
+
+	// Clean up in-namespace resources. These are not garbage-collected via
+	// owner references because they live in a different namespace than the
+	// KlausInstance.
+	inNamespaceResources := []client.Object{
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+			Name: instance.Name, Namespace: namespace,
+		}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{
+			Name: resources.ServiceName(instance), Namespace: namespace,
+		}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+			Name: resources.ConfigMapName(instance), Namespace: namespace,
+		}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+			Name: resources.SecretName(instance), Namespace: namespace,
+		}},
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+			Name: instance.Name, Namespace: namespace,
+		}},
+	}
+
+	// PVC only exists if workspace was configured.
+	if instance.Spec.Workspace != nil {
+		inNamespaceResources = append(inNamespaceResources, &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: resources.PVCName(instance), Namespace: namespace,
+			},
+		})
+	}
+
+	for _, obj := range inNamespaceResources {
+		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "failed to delete resource",
+				"kind", fmt.Sprintf("%T", obj),
+				"name", obj.GetName(),
+				"namespace", obj.GetNamespace(),
+			)
+		}
+	}
+
 	// Clean up cross-namespace MCPServer CRD.
 	musterNamespace := "muster"
 	if instance.Spec.Muster != nil && instance.Spec.Muster.Namespace != "" {
@@ -344,6 +403,7 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 func (r *KlausInstanceReconciler) updateStatusError(ctx context.Context, instance *klausv1alpha1.KlausInstance, reason string, err error) (ctrl.Result, error) {
 	instance.Status.State = klausv1alpha1.InstanceStateError
 	instance.Status.ObservedGeneration = instance.Generation
+	setCondition(instance, ConditionReady, metav1.ConditionFalse, reason, err.Error())
 	_ = r.Status().Update(ctx, instance)
 	r.Recorder.Event(instance, corev1.EventTypeWarning, reason, err.Error())
 	return ctrl.Result{}, err
@@ -366,6 +426,8 @@ func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, insta
 		instance.Status.Personality = instance.Spec.PersonalityRef.Name
 	}
 
+	setCondition(instance, ConditionReady, metav1.ConditionTrue, "Reconciled", "All resources reconciled successfully")
+
 	if err := r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -374,12 +436,43 @@ func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, insta
 }
 
 // SetupWithManager sets up the controller with the Manager.
+// We use label-based watches with Watches() instead of Owns() because child
+// resources live in different namespaces (user namespaces) from the parent
+// KlausInstance (operator namespace). Owns() relies on owner references which
+// cannot cross namespace boundaries.
 func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	managedByPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app.kubernetes.io/managed-by": "klaus-operator",
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating label selector predicate: %w", err)
+	}
+
+	mapToInstance := handler.EnqueueRequestsFromMapFunc(
+		func(_ context.Context, obj client.Object) []reconcile.Request {
+			instanceName := obj.GetLabels()["app.kubernetes.io/instance"]
+			if instanceName == "" {
+				return nil
+			}
+			return []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Name:      instanceName,
+					Namespace: r.OperatorNamespace,
+				},
+			}}
+		},
+	)
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&klausv1alpha1.KlausInstance{}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
+		Watches(&appsv1.Deployment{}, mapToInstance,
+			builder.WithPredicates(managedByPredicate)).
+		Watches(&corev1.Service{}, mapToInstance,
+			builder.WithPredicates(managedByPredicate)).
+		Watches(&corev1.ConfigMap{}, mapToInstance,
+			builder.WithPredicates(managedByPredicate)).
 		Named("klausinstance").
 		Complete(r)
 }

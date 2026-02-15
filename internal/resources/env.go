@@ -276,6 +276,9 @@ func envFromConfigMap(envName, configMapName, key string) corev1.EnvVar {
 
 func buildPluginDirs(instance *klausv1alpha1.KlausInstance) string {
 	var dirs []string
+	// User-provided plugin directories first.
+	dirs = append(dirs, instance.Spec.PluginDirs...)
+	// Then OCI plugin mount paths.
 	for _, plugin := range instance.Spec.Plugins {
 		dirs = append(dirs, PluginMountPath(plugin))
 	}

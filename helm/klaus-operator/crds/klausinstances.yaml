@@ -151,6 +151,16 @@ spec:
                         type: string
                       digest:
                         type: string
+                pluginDirs:
+                  description: Additional user-provided plugin directory paths.
+                  type: array
+                  items:
+                    type: string
+                imagePullSecrets:
+                  description: Pull secrets for private registries used by plugins.
+                  type: array
+                  items:
+                    type: string
                 mcpServers:
                   description: References to KlausMCPServer CRDs.
                   type: array

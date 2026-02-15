@@ -1,11 +1,41 @@
 package mcp
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 )
+
+// contextKey is a private type for context keys in this package.
+type contextKey int
+
+const (
+	// authTokenKey is the context key for the Authorization header value.
+	authTokenKey contextKey = iota
+)
+
+// HTTPContextFuncAuth returns an HTTPContextFunc that extracts the Authorization
+// header from the incoming HTTP request and stores it in the context. This is
+// used with mcp-go's WithHTTPContextFunc to make the token available to tool
+// handlers via context.
+func HTTPContextFuncAuth(ctx context.Context, r *http.Request) context.Context {
+	if token := r.Header.Get("Authorization"); token != "" {
+		ctx = context.WithValue(ctx, authTokenKey, token)
+	}
+	return ctx
+}
+
+// AuthTokenFromContext retrieves the Authorization header value stored in the
+// context by HTTPContextFuncAuth.
+func AuthTokenFromContext(ctx context.Context) string {
+	if token, ok := ctx.Value(authTokenKey).(string); ok {
+		return token
+	}
+	return ""
+}
 
 // ExtractUserFromToken extracts the user identity (email or subject) from a
 // JWT token forwarded by muster. This does not verify the token -- verification

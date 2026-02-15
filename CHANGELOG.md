@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helm chart for the operator with CRD, RBAC, Deployment, Service, ServiceAccount, and static MCPServer registration.
 - Multi-stage Dockerfile based on distroless.
 - Unit tests for resource rendering, ConfigMap building, env var generation, and JWT auth extraction.
+- MCP server JWT auth via `WithHTTPContextFunc`: Authorization header injected into context for tool handler user extraction.
+- Spec validation: mutual-exclusivity checks for hooks vs settingsFile, plugin tag vs digest, and plugin short name uniqueness.
+- `pluginDirs` field on KlausInstance spec for user-provided plugin directory paths, merged with OCI mount paths into `CLAUDE_PLUGIN_DIRS`.
+- `imagePullSecrets` field on KlausInstance spec for private registry authentication on instance pods.
+- Status conditions (`Ready`, `ConfigReady`, `DeploymentReady`, `MCPServerReady`) populated during reconciliation.
+- Stub CRDs for KlausPersonality and KlausMCPServer in the Helm chart (full implementation in #3 and #5).
+
+### Fixed
+
+- Cross-namespace resource management: replaced `Owns()` with label-based watches using `builder.WithPredicates` and `LabelSelectorPredicate`, since owner references cannot cross namespace boundaries.
+- Deletion now cleans up all in-namespace resources (Deployment, Service, ConfigMap, Secret, ServiceAccount, PVC) in addition to the cross-namespace MCPServer CRD.
 
 
 

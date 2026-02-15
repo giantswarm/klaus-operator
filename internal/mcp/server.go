@@ -63,7 +63,9 @@ func NewServer(c client.Client, operatorNamespace string) *Server {
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to restart")),
 	), s.handleRestartInstance)
 
-	s.httpServer = server.NewStreamableHTTPServer(mcpSrv)
+	s.httpServer = server.NewStreamableHTTPServer(mcpSrv,
+		server.WithHTTPContextFunc(HTTPContextFuncAuth),
+	)
 
 	return s
 }

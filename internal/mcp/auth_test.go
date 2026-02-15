@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"context"
 	"encoding/base64"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -62,6 +64,40 @@ func TestExtractUserFromToken(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHTTPContextFuncAuth(t *testing.T) {
+	token := "Bearer " + buildTestJWT(`{"email":"user@example.com"}`)
+
+	t.Run("injects token into context", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", token)
+
+		ctx := HTTPContextFuncAuth(context.Background(), req)
+
+		got := AuthTokenFromContext(ctx)
+		if got != token {
+			t.Errorf("AuthTokenFromContext() = %q, want %q", got, token)
+		}
+	})
+
+	t.Run("no auth header returns empty", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodPost, "/mcp", nil)
+
+		ctx := HTTPContextFuncAuth(context.Background(), req)
+
+		got := AuthTokenFromContext(ctx)
+		if got != "" {
+			t.Errorf("AuthTokenFromContext() = %q, want empty", got)
+		}
+	})
+
+	t.Run("empty context returns empty", func(t *testing.T) {
+		got := AuthTokenFromContext(context.Background())
+		if got != "" {
+			t.Errorf("AuthTokenFromContext() = %q, want empty", got)
+		}
+	})
 }
 
 // buildTestJWT creates a minimal JWT with the given payload.

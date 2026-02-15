@@ -191,6 +191,16 @@ func (in *KlausInstanceSpec) DeepCopyInto(out *KlausInstanceSpec) {
 		*out = make([]PluginReference, len(*in))
 		copy(*out, *in)
 	}
+	if in.PluginDirs != nil {
+		in, out := &in.PluginDirs, &out.PluginDirs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.ImagePullSecrets != nil {
+		in, out := &in.ImagePullSecrets, &out.ImagePullSecrets
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.MCPServers != nil {
 		in, out := &in.MCPServers, &out.MCPServers
 		*out = make([]MCPServerReference, len(*in))

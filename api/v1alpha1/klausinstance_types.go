@@ -25,6 +25,16 @@ type KlausInstanceSpec struct {
 	// +optional
 	Plugins []PluginReference `json:"plugins,omitempty"`
 
+	// PluginDirs specifies additional user-provided plugin directory paths.
+	// These are merged with the OCI plugin mount paths into CLAUDE_PLUGIN_DIRS.
+	// +optional
+	PluginDirs []string `json:"pluginDirs,omitempty"`
+
+	// ImagePullSecrets specifies pull secrets for private registries used by plugins.
+	// These are set on the instance pod spec.
+	// +optional
+	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
+
 	// MCPServers references shared KlausMCPServer CRDs by name.
 	// +optional
 	MCPServers []MCPServerReference `json:"mcpServers,omitempty"`
