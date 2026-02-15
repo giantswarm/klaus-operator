@@ -8,8 +8,7 @@ The klaus-operator manages the full lifecycle of Klaus instances through Kuberne
 
 - **KlausInstance** -- represents a running Klaus agent with its configuration, workspace, and MCP server registration
 - **KlausPersonality** -- reusable templates combining plugins, skills, agents, hooks, MCP servers, and model settings
-- **ClaudePlugin** -- shared Claude Code plugins (inline or OCI-sourced) that can be referenced by multiple instances
-- **ClaudeMCPServer** -- shared MCP server configurations with Secret injection for credentials
+- **KlausMCPServer** -- shared MCP server configurations with Secret injection for credentials
 
 ## Architecture
 
@@ -28,8 +27,7 @@ The operator itself exposes an MCP server interface (registered in Muster) with 
 |-----|-------------|
 | `KlausInstance` | A running Klaus agent instance with configuration and workspace |
 | `KlausPersonality` | Reusable template for instance configuration |
-| `ClaudePlugin` | Shared plugin definition (inline content or OCI artifact reference) |
-| `ClaudeMCPServer` | Shared MCP server config with Secret-based credential injection |
+| `KlausMCPServer` | Shared MCP server config with Secret-based credential injection |
 
 ## Development
 
