@@ -171,6 +171,28 @@ func TestBuildDeployment_WithWorkspace(t *testing.T) {
 	}
 }
 
+func TestBuildDeployment_WithCustomImage(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner: "user@example.com",
+			Image: "gsoci.azurecr.io/giantswarm/klaus-go:1.25",
+		},
+	}
+
+	// The reconciler passes the resolved image to BuildDeployment.
+	resolvedImage := instance.Spec.Image
+	dep := BuildDeployment(instance, "klaus-user-test", resolvedImage, nil)
+
+	containers := dep.Spec.Template.Spec.Containers
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(containers))
+	}
+	if containers[0].Image != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" {
+		t.Errorf("Image = %q, want %q", containers[0].Image, "gsoci.azurecr.io/giantswarm/klaus-go:1.25")
+	}
+}
+
 func TestBuildDeployment_SelectorLabelsMatchPodLabels(t *testing.T) {
 	instance := &klausv1alpha1.KlausInstance{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-instance"},

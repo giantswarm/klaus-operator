@@ -420,6 +420,60 @@ func TestMergePersonalityIntoInstance_MCPServerSecretsDeduplicated(t *testing.T)
 	}
 }
 
+func TestMergePersonalityIntoInstance_ImageFieldInherited(t *testing.T) {
+	t.Run("empty instance inherits personality image", func(t *testing.T) {
+		personality := &klausv1alpha1.KlausPersonalitySpec{
+			Image: "gsoci.azurecr.io/giantswarm/klaus-go:1.25",
+		}
+		instance := &klausv1alpha1.KlausInstanceSpec{}
+
+		MergePersonalityIntoInstance(personality, instance)
+
+		if instance.Image != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" {
+			t.Errorf("expected image from personality, got %q", instance.Image)
+		}
+	})
+
+	t.Run("instance image overrides personality image", func(t *testing.T) {
+		personality := &klausv1alpha1.KlausPersonalitySpec{
+			Image: "gsoci.azurecr.io/giantswarm/klaus-go:1.25",
+		}
+		instance := &klausv1alpha1.KlausInstanceSpec{
+			Image: "gsoci.azurecr.io/giantswarm/klaus-python:3.13",
+		}
+
+		MergePersonalityIntoInstance(personality, instance)
+
+		if instance.Image != "gsoci.azurecr.io/giantswarm/klaus-python:3.13" {
+			t.Errorf("expected instance image override, got %q", instance.Image)
+		}
+	})
+
+	t.Run("empty personality does not clear instance image", func(t *testing.T) {
+		personality := &klausv1alpha1.KlausPersonalitySpec{}
+		instance := &klausv1alpha1.KlausInstanceSpec{
+			Image: "gsoci.azurecr.io/giantswarm/klaus-rust:1.85",
+		}
+
+		MergePersonalityIntoInstance(personality, instance)
+
+		if instance.Image != "gsoci.azurecr.io/giantswarm/klaus-rust:1.85" {
+			t.Errorf("expected instance image preserved, got %q", instance.Image)
+		}
+	})
+
+	t.Run("both empty keeps image empty", func(t *testing.T) {
+		personality := &klausv1alpha1.KlausPersonalitySpec{}
+		instance := &klausv1alpha1.KlausInstanceSpec{}
+
+		MergePersonalityIntoInstance(personality, instance)
+
+		if instance.Image != "" {
+			t.Errorf("expected empty image, got %q", instance.Image)
+		}
+	})
+}
+
 func TestMergePlugins_EmptyInputs(t *testing.T) {
 	t.Run("both empty", func(t *testing.T) {
 		result := mergePlugins(nil, nil)

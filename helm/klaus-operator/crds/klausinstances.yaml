@@ -61,6 +61,11 @@ spec:
                 owner:
                   description: User identity (email) that owns this instance.
                   type: string
+                image:
+                  description: >-
+                    Overrides the container image for this instance.
+                    Takes precedence over personality image and the operator default.
+                  type: string
                 claude:
                   description: Claude Code agent configuration.
                   type: object
@@ -351,6 +356,9 @@ spec:
                       observedGeneration:
                         type: integer
                         format: int64
+                toolchain:
+                  description: Resolved container image name when different from the default.
+                  type: string
                 observedGeneration:
                   type: integer
                   format: int64
