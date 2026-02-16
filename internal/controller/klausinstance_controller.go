@@ -101,6 +101,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
 	}
 
+	// Resolve KlausMCPServer references and merge their configs and secrets
+	// into the merged spec. This must happen after personality merge so that
+	// personality-level MCP server refs are included.
+	if err := r.resolveMCPServers(ctx, merged); err != nil {
+		return r.updateStatusError(ctx, &instance, "MCPServerRefError", err)
+	}
+
 	// Validate the merged spec.
 	if err := resources.ValidateSpec(merged); err != nil {
 		return r.updateStatusError(ctx, &instance, "ValidationError", err)
@@ -465,6 +472,77 @@ func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, insta
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
+// resolveMCPServers fetches referenced KlausMCPServer CRDs, converts their
+// configs to JSON, and merges them into the instance spec. Their secretRefs are
+// also injected (deduplicated) and the source Secrets are copied to the user
+// namespace so that secretKeyRef env vars can resolve at pod startup.
+func (r *KlausInstanceReconciler) resolveMCPServers(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
+	if len(instance.Spec.MCPServers) == 0 {
+		return nil
+	}
+
+	resolved := &resources.ResolvedMCPConfig{
+		Servers: make(map[string]runtime.RawExtension, len(instance.Spec.MCPServers)),
+	}
+
+	namespace := resources.UserNamespace(instance.Spec.Owner)
+
+	for _, ref := range instance.Spec.MCPServers {
+		var server klausv1alpha1.KlausMCPServer
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      ref.Name,
+			Namespace: instance.Namespace,
+		}, &server); err != nil {
+			return fmt.Errorf("resolving MCP server %q: %w", ref.Name, err)
+		}
+
+		// Convert the server spec to a RawExtension for .mcp.json assembly.
+		rawConfig, err := resources.ServerConfigToRawExtension(&server.Spec)
+		if err != nil {
+			return fmt.Errorf("marshaling MCP server %q config: %w", ref.Name, err)
+		}
+		resolved.Servers[ref.Name] = rawConfig
+
+		// Collect secretRefs.
+		resolved.Secrets = append(resolved.Secrets, server.Spec.SecretRefs...)
+
+		// Copy referenced Secrets from operator namespace to user namespace.
+		for _, secretRef := range server.Spec.SecretRefs {
+			if err := r.copyMCPSecret(ctx, instance, secretRef.SecretName, namespace); err != nil {
+				return fmt.Errorf("copying MCP secret %q for server %q: %w",
+					secretRef.SecretName, ref.Name, err)
+			}
+		}
+	}
+
+	resources.MergeResolvedMCPIntoInstance(resolved, &instance.Spec)
+	return nil
+}
+
+// copyMCPSecret copies a Secret from the operator namespace to the target user
+// namespace, ensuring that secretKeyRef env vars on the instance pod can resolve.
+func (r *KlausInstanceReconciler) copyMCPSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, secretName, targetNamespace string) error {
+	srcSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      secretName,
+		Namespace: instance.Namespace,
+	}, srcSecret)
+	if err != nil {
+		return fmt.Errorf("fetching source secret: %w", err)
+	}
+
+	existing := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      secretName,
+		Namespace: targetNamespace,
+	}}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Data = srcSecret.Data
+		existing.Labels = resources.InstanceLabels(instance)
+		return nil
+	})
+	return err
+}
+
 // resolvePersonality fetches the referenced KlausPersonality and merges its
 // spec into the instance spec. If no personalityRef is set, this is a no-op.
 func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
@@ -527,6 +605,9 @@ func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(managedByPredicate)).
 		Watches(&klausv1alpha1.KlausPersonality{},
 			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingInstances(r.Client, r.OperatorNamespace)),
+		).
+		Watches(&klausv1alpha1.KlausMCPServer{},
+			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingMCPServerInstances(r.Client, r.OperatorNamespace)),
 		).
 		Named("klausinstance").
 		Complete(r)

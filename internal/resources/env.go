@@ -2,6 +2,8 @@ package resources
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -99,8 +101,10 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	}
 
 	// MCP server secrets (dynamic env vars from Kubernetes Secrets).
+	// Iterate env var names in sorted order for deterministic pod specs.
 	for _, mcpSecret := range instance.Spec.Claude.MCPServerSecrets {
-		for envVar, secretKey := range mcpSecret.Env {
+		for _, envVar := range slices.Sorted(maps.Keys(mcpSecret.Env)) {
+			secretKey := mcpSecret.Env[envVar]
 			envs = append(envs, corev1.EnvVar{
 				Name: envVar,
 				ValueFrom: &corev1.EnvVarSource{

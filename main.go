@@ -101,6 +101,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up the KlausMCPServer controller.
+	if err := (&controller.KlausMCPServerReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Recorder:          mgr.GetEventRecorderFor("klausmcpserver-controller"),
+		OperatorNamespace: operatorNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KlausMCPServer")
+		os.Exit(1)
+	}
+
 	// Set up health checks.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

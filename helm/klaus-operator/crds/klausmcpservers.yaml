@@ -24,6 +24,9 @@ spec:
         - name: Type
           type: string
           jsonPath: .spec.type
+        - name: Instances
+          type: integer
+          jsonPath: .status.instanceCount
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -33,7 +36,6 @@ spec:
             KlausMCPServer defines a shared MCP server configuration that can be
             referenced by KlausInstance resources. The operator resolves these
             references and assembles the MCP config with Secret injection.
-            Full implementation in #5.
           type: object
           properties:
             apiVersion:
@@ -63,7 +65,7 @@ spec:
                   items:
                     type: string
                 env:
-                  description: Static environment variables.
+                  description: Static environment variables for the MCP server process.
                   type: object
                   additionalProperties:
                     type: string
@@ -71,7 +73,9 @@ spec:
                   description: >-
                     Secret references for credential injection. Each entry maps
                     environment variable names to Secret keys, enabling ${VAR}
-                    expansion in the MCP config.
+                    expansion in the MCP config. Secrets must exist in the
+                    operator namespace; they are copied to instance user
+                    namespaces at reconcile time.
                   type: array
                   items:
                     type: object
@@ -96,6 +100,55 @@ spec:
               description: KlausMCPServerStatus defines the observed state.
               type: object
               properties:
+                conditions:
+                  description: >-
+                    Conditions represent the latest available observations of
+                    the server's state.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    properties:
+                      lastTransitionTime:
+                        description: Last time the condition transitioned.
+                        type: string
+                        format: date-time
+                      message:
+                        description: Human-readable message.
+                        type: string
+                        maxLength: 32768
+                      observedGeneration:
+                        description: Generation observed when condition was set.
+                        type: integer
+                        format: int64
+                        minimum: 0
+                      reason:
+                        description: Programmatic identifier for the condition's reason.
+                        type: string
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$"
+                      status:
+                        description: Status of the condition.
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      type:
+                        description: Type of the condition.
+                        type: string
+                        maxLength: 316
+                        pattern: "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$"
                 instanceCount:
                   description: Number of instances referencing this MCP server.
                   type: integer
+                observedGeneration:
+                  description: Most recent generation observed by the controller.
+                  type: integer
+                  format: int64
