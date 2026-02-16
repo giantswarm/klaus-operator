@@ -13,16 +13,23 @@ spec:
       {{- include "labels.selector" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: {{ .Chart.Name }}
       labels:
         {{- include "labels.selector" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "resource.default.name" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsNonRoot: true
+        runAsUser: {{ .Values.pod.user.id }}
+        runAsGroup: {{ .Values.pod.group.id }}
+        {{- with .Values.podSecurityContext }}
+          {{- . | toYaml | nindent 8 }}
+        {{- end }}
       containers:
-      - name: {{ include "name" . }}
-        image: {{ include "image" . }}
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+      - name: {{ .Chart.Name }}
+        image: "{{ .Values.image.registry }}/{{ .Values.image.name }}:{{ include "image.tag" . }}"
+        imagePullPolicy: "{{ .Values.image.pullPolicy }}"
         args:
         - --metrics-bind-address=:{{ .Values.metrics.port }}
         - --health-probe-bind-address=:{{ .Values.probes.port }}
@@ -65,7 +72,10 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
         securityContext:
-          {{- toYaml .Values.securityContext | nindent 10 }}
+          {{- with .Values.securityContext }}
+            {{- . | toYaml | nindent 10 }}
+          {{- end }}
+      terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

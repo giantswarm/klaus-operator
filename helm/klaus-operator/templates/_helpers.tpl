@@ -17,13 +17,12 @@ Create chart name and version as used by the chart label.
 Common labels
 */}}
 {{- define "labels.common" -}}
-app: {{ include "name" . | quote }}
 {{ include "labels.selector" . }}
-application.giantswarm.io/branch: {{ .Chart.AppVersion | replace "#" "-" | replace "/" "-" | replace "." "-" | trunc 63 | trimSuffix "-" | quote }}
-application.giantswarm.io/commit: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 application.giantswarm.io/team: {{ index .Chart.Annotations "io.giantswarm.application.team" | quote }}
+giantswarm.io/managed-by: {{ include "name" . | quote }}
+giantswarm.io/service-type: {{ .Values.serviceType | quote }}
 helm.sh/chart: {{ include "chart" . | quote }}
 {{- end -}}
 
@@ -36,12 +35,8 @@ app.kubernetes.io/instance: {{ .Release.Name | quote }}
 {{- end -}}
 
 {{/*
-Define image reference.
+Image tag defaults to Chart.AppVersion.
 */}}
-{{- define "image" -}}
-{{- if .Values.image.tag -}}
-{{ .Values.registry.domain }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
-{{- else -}}
-{{ .Values.registry.domain }}/{{ .Values.image.repository }}:{{ .Chart.AppVersion }}
-{{- end -}}
+{{- define "image.tag" -}}
+{{- .Values.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
