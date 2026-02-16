@@ -1,15 +1,16 @@
 # Default values for klaus-operator.
 
+name: klaus-operator
+serviceType: managed
+
 image:
-  repository: gsoci.azurecr.io/giantswarm/klaus-operator
-  tag: ""  # Defaults to appVersion
+  registry: gsoci.azurecr.io
+  name: giantswarm/klaus-operator
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Klaus agent image used for instances.
 klausImage: gsoci.azurecr.io/giantswarm/klaus:latest
-
-# Namespace for the operator deployment.
-namespace: klaus-system
 
 # Number of replicas (should be 1 with leader election, or 1 without).
 replicaCount: 1
@@ -25,15 +26,18 @@ anthropicKeySecret:
 
 # MCP server configuration.
 mcp:
-  # Port for the operator's MCP server.
   port: 9090
 
 # Muster integration.
 muster:
-  # Namespace where MCPServer CRDs are created.
   namespace: muster
-  # Whether to register the operator itself as an MCPServer in muster.
   registerOperator: true
+
+pod:
+  user:
+    id: 65532
+  group:
+    id: 65532
 
 # Resource requirements for the operator.
 resources:
@@ -47,7 +51,6 @@ resources:
 # Service account.
 serviceAccount:
   create: true
-  name: ""  # Defaults to release name.
   annotations: {}
 
 # Metrics and monitoring.
@@ -59,11 +62,14 @@ metrics:
 probes:
   port: 8081
 
+# ServiceMonitor for Prometheus.
+serviceMonitor:
+  enabled: true
+  interval: "60s"
+  scrapeTimeout: "45s"
+
 # Pod security context.
 podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 65532
-  runAsGroup: 65532
   seccompProfile:
     type: RuntimeDefault
 
@@ -71,9 +77,15 @@ podSecurityContext:
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
+  seccompProfile:
+    type: RuntimeDefault
   capabilities:
     drop:
       - ALL
+
+global:
+  podSecurityStandards:
+    enforced: false
 
 # Node selector.
 nodeSelector: {}

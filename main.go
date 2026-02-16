@@ -15,6 +15,7 @@ import (
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/controller"
 	"github.com/giantswarm/klaus-operator/internal/mcp"
+	"github.com/giantswarm/klaus-operator/pkg/project"
 )
 
 var (
@@ -89,6 +90,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up the KlausPersonality controller.
+	if err := (&controller.KlausPersonalityReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Recorder:          mgr.GetEventRecorderFor("klauspersonality-controller"),
+		OperatorNamespace: operatorNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KlausPersonality")
+		os.Exit(1)
+	}
+
 	// Set up health checks.
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -106,7 +118,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("starting manager",
+		"version", project.Version(),
+		"gitSHA", project.GitSHA(),
+		"buildTimestamp", project.BuildTimestamp(),
+	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

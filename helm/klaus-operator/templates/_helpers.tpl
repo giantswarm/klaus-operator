@@ -1,68 +1,42 @@
+{{/* vim: set filetype=mustache: */}}
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "klaus-operator.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{- define "name" -}}
+{{- .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
 {{/*
-Create a default fully qualified app name.
+Create chart name and version as used by the chart label.
 */}}
-{{- define "klaus-operator.fullname" -}}
-{{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
-{{- end }}
-{{- end }}
+{{- define "chart" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 
 {{/*
-Common labels.
+Common labels
 */}}
-{{- define "klaus-operator.labels" -}}
-helm.sh/chart: {{ include "klaus-operator.chart" . }}
-{{ include "klaus-operator.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
+{{- define "labels.common" -}}
+{{ include "labels.selector" . }}
+app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-{{- end }}
+application.giantswarm.io/team: {{ index .Chart.Annotations "io.giantswarm.application.team" | quote }}
+giantswarm.io/managed-by: {{ include "name" . | quote }}
+giantswarm.io/service-type: {{ .Values.serviceType | quote }}
+helm.sh/chart: {{ include "chart" . | quote }}
+{{- end -}}
 
 {{/*
-Selector labels.
+Selector labels
 */}}
-{{- define "klaus-operator.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "klaus-operator.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-{{- end }}
+{{- define "labels.selector" -}}
+app.kubernetes.io/name: {{ include "name" . | quote }}
+app.kubernetes.io/instance: {{ .Release.Name | quote }}
+{{- end -}}
 
 {{/*
-Chart label.
+Image tag defaults to Chart.AppVersion.
 */}}
-{{- define "klaus-operator.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{- end }}
-
-{{/*
-Service account name.
-*/}}
-{{- define "klaus-operator.serviceAccountName" -}}
-{{- if .Values.serviceAccount.name }}
-{{- .Values.serviceAccount.name }}
-{{- else }}
-{{- include "klaus-operator.fullname" . }}
-{{- end }}
-{{- end }}
-
-{{/*
-Image reference.
-*/}}
-{{- define "klaus-operator.image" -}}
-{{- $tag := default .Chart.AppVersion .Values.image.tag -}}
-{{ .Values.image.repository }}:{{ $tag }}
-{{- end }}
+{{- define "image.tag" -}}
+{{- .Values.image.tag | default .Chart.AppVersion -}}
+{{- end -}}

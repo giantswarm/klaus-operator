@@ -5,10 +5,10 @@ metadata:
   name: klaus-operator
   namespace: {{ .Values.muster.namespace }}
   labels:
-    {{- include "klaus-operator.labels" . | nindent 4 }}
+    {{- include "labels.common" . | nindent 4 }}
 spec:
   type: streamable-http
-  url: http://{{ include "klaus-operator.fullname" . }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.mcp.port }}/mcp
+  url: http://{{ include "resource.default.name" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.port }}/mcp
   auth:
     forwardToken: true
 {{- end }}

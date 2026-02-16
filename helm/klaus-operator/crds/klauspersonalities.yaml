@@ -24,6 +24,9 @@ spec:
         - name: Description
           type: string
           jsonPath: .spec.description
+        - name: Instances
+          type: integer
+          jsonPath: .status.instanceCount
         - name: Age
           type: date
           jsonPath: .metadata.creationTimestamp
@@ -32,7 +35,8 @@ spec:
           description: >-
             KlausPersonality defines a reusable template for KlausInstance
             configuration. Instances can reference a personality via
-            personalityRef to inherit its defaults. Full implementation in #3.
+            personalityRef to inherit its defaults. Instance-specific fields
+            override personality defaults according to defined merge semantics.
           type: object
           properties:
             apiVersion:
@@ -51,7 +55,107 @@ spec:
                 claude:
                   description: Claude Code agent configuration defaults.
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    model:
+                      description: Claude model to use.
+                      type: string
+                    maxTurns:
+                      description: Maximum number of agentic turns. 0 means unlimited.
+                      type: integer
+                    permissionMode:
+                      description: Tool permission handling mode.
+                      type: string
+                      enum:
+                        - bypassPermissions
+                        - default
+                    systemPrompt:
+                      description: Overrides the default system prompt.
+                      type: string
+                    appendSystemPrompt:
+                      description: Appends text to the default system prompt.
+                      type: string
+                    mcpServers:
+                      description: Inline MCP server configuration (free-form map rendered to .mcp.json).
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    mcpServerSecrets:
+                      description: Secret references for ${VAR} expansion in MCP config.
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - secretName
+                          - env
+                        properties:
+                          secretName:
+                            type: string
+                          env:
+                            type: object
+                            additionalProperties:
+                              type: string
+                    mcpTimeout:
+                      description: MCP_TIMEOUT env var (milliseconds).
+                      type: integer
+                    maxMcpOutputTokens:
+                      description: MAX_MCP_OUTPUT_TOKENS.
+                      type: integer
+                    strictMcpConfig:
+                      description: Prevents loading MCP configs from user/project/local sources.
+                      type: boolean
+                      default: true
+                    maxBudgetUSD:
+                      description: Maximum spend per session in USD.
+                      type: number
+                    effort:
+                      description: Thinking effort level.
+                      type: string
+                      enum:
+                        - low
+                        - medium
+                        - high
+                    fallbackModel:
+                      description: Fallback model if primary is unavailable.
+                      type: string
+                    jsonSchema:
+                      description: Structured output JSON schema.
+                      type: string
+                    settingsFile:
+                      description: Path to a custom settings file. Mutually exclusive with spec.hooks.
+                      type: string
+                    settingSources:
+                      description: Controls which settings sources are loaded.
+                      type: string
+                    tools:
+                      description: Tools to enable.
+                      type: array
+                      items:
+                        type: string
+                    allowedTools:
+                      description: Restricts which tools can be used.
+                      type: array
+                      items:
+                        type: string
+                    disallowedTools:
+                      description: Prevents specific tools from being used.
+                      type: array
+                      items:
+                        type: string
+                    agents:
+                      description: JSON-format subagent configurations.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    activeAgent:
+                      description: Selects the top-level agent.
+                      type: string
+                    persistentMode:
+                      description: Enables bidirectional stream-json mode.
+                      type: boolean
+                    includePartialMessages:
+                      description: Enables streaming partial messages.
+                      type: boolean
+                    noSessionPersistence:
+                      description: Disables session persistence.
+                      type: boolean
                 plugins:
                   description: Default OCI plugin references.
                   type: array
@@ -66,6 +170,11 @@ spec:
                         type: string
                       digest:
                         type: string
+                    x-kubernetes-validations:
+                      - rule: "!(has(self.tag) && has(self.digest))"
+                        message: "tag and digest are mutually exclusive"
+                      - rule: "has(self.tag) || has(self.digest)"
+                        message: "must specify either tag or digest"
                 pluginDirs:
                   description: Default additional plugin directory paths.
                   type: array
@@ -84,13 +193,43 @@ spec:
                 skills:
                   description: Default inline skill configurations.
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
+                  additionalProperties:
+                    type: object
+                    required:
+                      - content
+                    properties:
+                      description:
+                        type: string
+                      content:
+                        type: string
+                      disableModelInvocation:
+                        type: boolean
+                      userInvocable:
+                        type: boolean
+                      allowedTools:
+                        type: array
+                        items:
+                          type: string
+                      model:
+                        type: string
+                      context:
+                        x-kubernetes-preserve-unknown-fields: true
+                      agent:
+                        type: string
+                      argumentHint:
+                        type: string
                 agentFiles:
                   description: Default inline agent file definitions.
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
+                  additionalProperties:
+                    type: object
+                    required:
+                      - content
+                    properties:
+                      content:
+                        type: string
                 hooks:
-                  description: Default lifecycle hooks.
+                  description: Default lifecycle hooks rendered to settings.json.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 hookScripts:
@@ -103,6 +242,9 @@ spec:
                   type: array
                   items:
                     type: string
+                loadAdditionalDirsMemory:
+                  description: Enables CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD.
+                  type: boolean
                 resources:
                   description: Default compute resource requirements.
                   type: object
@@ -124,11 +266,81 @@ spec:
                 telemetry:
                   description: Default telemetry configuration.
                   type: object
-                  x-kubernetes-preserve-unknown-fields: true
+                  properties:
+                    enabled:
+                      type: boolean
+                    metricsExporter:
+                      type: string
+                    logsExporter:
+                      type: string
+                    otlp:
+                      type: object
+                      properties:
+                        protocol:
+                          type: string
+                        endpoint:
+                          type: string
+                        headers:
+                          type: string
+                    metricExportIntervalMs:
+                      type: integer
+                    logsExportIntervalMs:
+                      type: integer
+                    logUserPrompts:
+                      type: boolean
+                    logToolDetails:
+                      type: boolean
+                    includeSessionId:
+                      type: boolean
+                    includeVersion:
+                      type: boolean
+                    includeAccountUuid:
+                      type: boolean
+                    resourceAttributes:
+                      type: string
             status:
               description: KlausPersonalityStatus defines the observed state.
               type: object
               properties:
+                conditions:
+                  description: Current conditions of the personality.
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
                 instanceCount:
                   description: Number of instances using this personality.
                   type: integer
+                pluginCount:
+                  description: Number of plugins defined.
+                  type: integer
+                mcpServerCount:
+                  description: Number of MCP servers configured.
+                  type: integer
+                observedGeneration:
+                  description: Most recent generation observed by the controller.
+                  type: integer
+                  format: int64

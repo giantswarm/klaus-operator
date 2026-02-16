@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- KlausPersonality CRD (`klaus.giantswarm.io/v1alpha1`) for reusable instance configuration templates (#3).
+- KlausPersonality controller with validation, status conditions (`Ready`, `Valid`), and instance count tracking.
+- Merge logic for personality + instance specs: scalar fields use instance override, list fields append (with deduplication), map fields merge (instance wins on key conflict), pointer fields inherit when nil.
+- KlausInstance controller now resolves `personalityRef`, fetches the referenced KlausPersonality, and merges its defaults before rendering resources.
+- KlausInstance controller watches KlausPersonality changes and re-reconciles all referencing instances when a personality is updated.
+- Full CRD schema for KlausPersonality in Helm chart (replaces the previous stub).
+- Unit tests for merge semantics covering scalar overrides, list appending, map merging, plugin deduplication, and pointer field inheritance.
 - Initial repository setup from giantswarm/template.
 - KlausInstance CRD (`klaus.giantswarm.io/v1alpha1`) with full configuration surface matching the standalone Helm chart.
 - KlausInstance controller reconciling to Namespace, Deployment, Service, PVC, ConfigMap, Secret, and MCPServer CRD.
