@@ -8,6 +8,8 @@ appVersion: 0.1.0
 home: https://github.com/giantswarm/klaus-operator
 sources:
   - https://github.com/giantswarm/klaus-operator
+annotations:
+  io.giantswarm.application.team: phoenix
 maintainers:
   - name: Giant Swarm
     url: https://www.giantswarm.io

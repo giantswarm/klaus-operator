@@ -15,6 +15,7 @@ import (
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/controller"
 	"github.com/giantswarm/klaus-operator/internal/mcp"
+	"github.com/giantswarm/klaus-operator/pkg/project"
 )
 
 var (
@@ -117,7 +118,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("starting manager",
+		"version", project.Version(),
+		"gitSHA", project.GitSHA(),
+		"buildTimestamp", project.BuildTimestamp(),
+	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

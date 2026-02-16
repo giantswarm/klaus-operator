@@ -1,70 +1,71 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "klaus-operator.fullname" . }}
-  namespace: {{ .Values.namespace }}
+  name: {{ include "resource.default.name" . }}
+  namespace: {{ include "resource.default.namespace" . }}
   labels:
-    {{- include "klaus-operator.labels" . | nindent 4 }}
+    {{- include "labels.common" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
-      {{- include "klaus-operator.selectorLabels" . | nindent 6 }}
+      {{- include "labels.selector" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "klaus-operator.selectorLabels" . | nindent 8 }}
+        {{- include "labels.selector" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "klaus-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "resource.default.name" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
-        - name: manager
-          image: {{ include "klaus-operator.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            - --metrics-bind-address=:{{ .Values.metrics.port }}
-            - --health-probe-bind-address=:{{ .Values.probes.port }}
-            - --mcp-bind-address=:{{ .Values.mcp.port }}
-            - --klaus-image={{ .Values.klausImage }}
-            - --anthropic-key-secret={{ .Values.anthropicKeySecret.name }}
-            {{- if .Values.anthropicKeySecret.namespace }}
-            - --anthropic-key-namespace={{ .Values.anthropicKeySecret.namespace }}
-            {{- end }}
-            {{- if .Values.leaderElection.enabled }}
-            - --leader-elect
-            {{- end }}
-          ports:
-            - name: metrics
-              containerPort: {{ .Values.metrics.port }}
-              protocol: TCP
-            - name: health
-              containerPort: {{ .Values.probes.port }}
-              protocol: TCP
-            - name: mcp
-              containerPort: {{ .Values.mcp.port }}
-              protocol: TCP
-          env:
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: health
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: health
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+      - name: {{ include "name" . }}
+        image: {{ include "image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        args:
+        - --metrics-bind-address=:{{ .Values.metrics.port }}
+        - --health-probe-bind-address=:{{ .Values.probes.port }}
+        - --mcp-bind-address=:{{ .Values.mcp.port }}
+        - --klaus-image={{ .Values.klausImage }}
+        - --anthropic-key-secret={{ .Values.anthropicKeySecret.name }}
+        {{- if .Values.anthropicKeySecret.namespace }}
+        - --anthropic-key-namespace={{ .Values.anthropicKeySecret.namespace }}
+        {{- end }}
+        {{- if .Values.leaderElection.enabled }}
+        - --leader-elect
+        {{- end }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        - name: health
+          containerPort: {{ .Values.probes.port }}
+          protocol: TCP
+        - name: mcp
+          containerPort: {{ .Values.mcp.port }}
+          protocol: TCP
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

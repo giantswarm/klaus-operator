@@ -1,15 +1,15 @@
 # Default values for klaus-operator.
 
+registry:
+  domain: gsoci.azurecr.io
+
 image:
-  repository: gsoci.azurecr.io/giantswarm/klaus-operator
+  repository: giantswarm/klaus-operator
   tag: ""  # Defaults to appVersion
   pullPolicy: IfNotPresent
 
 # Klaus agent image used for instances.
 klausImage: gsoci.azurecr.io/giantswarm/klaus:latest
-
-# Namespace for the operator deployment.
-namespace: klaus-system
 
 # Number of replicas (should be 1 with leader election, or 1 without).
 replicaCount: 1
@@ -47,7 +47,6 @@ resources:
 # Service account.
 serviceAccount:
   create: true
-  name: ""  # Defaults to release name.
   annotations: {}
 
 # Metrics and monitoring.
@@ -58,6 +57,14 @@ metrics:
 # Health probes.
 probes:
   port: 8081
+
+# ServiceMonitor for Prometheus.
+serviceMonitor:
+  enabled: true
+  # -- (duration) Prometheus scrape interval.
+  interval: "60s"
+  # -- (duration) Prometheus scrape timeout.
+  scrapeTimeout: "45s"
 
 # Pod security context.
 podSecurityContext:
@@ -73,7 +80,7 @@ securityContext:
   readOnlyRootFilesystem: true
   capabilities:
     drop:
-      - ALL
+    - ALL
 
 # Node selector.
 nodeSelector: {}

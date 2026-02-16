@@ -1,16 +1,8 @@
-FROM golang:1.25 AS builder
+FROM gsoci.azurecr.io/giantswarm/alpine:3.23.3
 
-WORKDIR /app
+RUN apk add --no-cache ca-certificates
 
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /klaus-operator .
-
-FROM gcr.io/distroless/static:nonroot
-
-COPY --from=builder /klaus-operator /klaus-operator
+ADD ./klaus-operator /klaus-operator
 
 USER 65532:65532
 
