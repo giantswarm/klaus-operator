@@ -356,9 +356,9 @@ spec:
                       observedGeneration:
                         type: integer
                         format: int64
-                toolchain:
-                  description: Resolved container image name when different from the default.
-                  type: string
                 observedGeneration:
                   type: integer
                   format: int64
+                toolchain:
+                  description: Resolved container image name when different from the default.
+                  type: string

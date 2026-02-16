@@ -446,13 +446,13 @@ type KlausInstanceStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// Toolchain is the resolved container image name when different from the default.
-	// +optional
-	Toolchain string `json:"toolchain,omitempty"`
-
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Toolchain is the resolved container image name when different from the default.
+	// +optional
+	Toolchain string `json:"toolchain,omitempty"`
 }
 
 // +kubebuilder:object:root=true
