@@ -151,6 +151,10 @@ func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallTo
 		"namespace":   resources.UserNamespace(instance.Spec.Owner),
 	}
 
+	if instance.Status.Toolchain != "" {
+		result["toolchain"] = instance.Status.Toolchain
+	}
+
 	if instance.Status.LastActivity != nil {
 		result["lastActivity"] = instance.Status.LastActivity.Format(time.RFC3339)
 	}

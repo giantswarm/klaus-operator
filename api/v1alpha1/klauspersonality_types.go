@@ -16,6 +16,13 @@ type KlausPersonalitySpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
+	// Image is the container image for instances using this personality.
+	// When set, overrides the operator's default klausImage.
+	// This should be a composite image containing both the language toolchain
+	// and the Klaus agent.
+	// +optional
+	Image string `json:"image,omitempty"`
+
 	// Claude contains all Claude Code agent configuration defaults.
 	// +optional
 	Claude ClaudeConfig `json:"claude,omitempty"`

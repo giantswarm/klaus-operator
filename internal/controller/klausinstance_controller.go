@@ -170,7 +170,12 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 6. Create/update Deployment.
-	dep := resources.BuildDeployment(merged, namespace, r.KlausImage, cm.Data)
+	// Resolve the container image: instance > personality > operator default.
+	resolvedImage := r.KlausImage
+	if merged.Spec.Image != "" {
+		resolvedImage = merged.Spec.Image
+	}
+	dep := resources.BuildDeployment(merged, namespace, resolvedImage, cm.Data)
 	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
@@ -207,9 +212,9 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// 9. Update status. Use the merged spec for status computation (plugin
 	// counts, mode) so the status reflects the effective configuration.
 	if deploymentReady {
-		return r.updateStatusRunning(ctx, &instance, namespace)
+		return r.updateStatusRunning(ctx, &instance, namespace, resolvedImage)
 	}
-	return r.updateStatusPending(ctx, &instance, namespace)
+	return r.updateStatusPending(ctx, &instance, namespace, resolvedImage)
 }
 
 func (r *KlausInstanceReconciler) ensureNamespace(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
@@ -448,7 +453,7 @@ func (r *KlausInstanceReconciler) updateStatusError(ctx context.Context, instanc
 	return ctrl.Result{}, err
 }
 
-func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.KlausInstance, namespace string) {
+func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.KlausInstance, namespace, resolvedImage string) {
 	instance.Status.Endpoint = resources.ServiceEndpoint(instance, namespace)
 	instance.Status.PluginCount = len(instance.Spec.Plugins)
 	instance.Status.MCPServerCount = len(instance.Spec.MCPServers) + len(instance.Spec.Claude.MCPServers)
@@ -465,11 +470,18 @@ func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.K
 	} else {
 		instance.Status.Personality = ""
 	}
+
+	// Report the resolved image when it differs from the operator default.
+	if resolvedImage != r.KlausImage {
+		instance.Status.Toolchain = resolvedImage
+	} else {
+		instance.Status.Toolchain = ""
+	}
 }
 
-func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (ctrl.Result, error) {
+func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace, resolvedImage string) (ctrl.Result, error) {
 	instance.Status.State = klausv1alpha1.InstanceStateRunning
-	r.populateCommonStatus(instance, namespace)
+	r.populateCommonStatus(instance, namespace, resolvedImage)
 	setCondition(instance, ConditionReady, metav1.ConditionTrue, "Reconciled", "All resources reconciled successfully")
 
 	if err := r.Status().Update(ctx, instance); err != nil {
@@ -478,9 +490,9 @@ func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, insta
 	return ctrl.Result{}, nil
 }
 
-func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (ctrl.Result, error) {
+func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace, resolvedImage string) (ctrl.Result, error) {
 	instance.Status.State = klausv1alpha1.InstanceStatePending
-	r.populateCommonStatus(instance, namespace)
+	r.populateCommonStatus(instance, namespace, resolvedImage)
 	setCondition(instance, ConditionReady, metav1.ConditionFalse, "Progressing", "Waiting for Deployment to become available")
 
 	if err := r.Status().Update(ctx, instance); err != nil {

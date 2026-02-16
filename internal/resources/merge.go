@@ -19,6 +19,11 @@ import (
 //
 // Callers must pass a deep-copied instance to avoid mutating the informer cache.
 func MergePersonalityIntoInstance(personality *klausv1alpha1.KlausPersonalitySpec, instance *klausv1alpha1.KlausInstanceSpec) {
+	// Scalar field: instance overrides personality when non-empty.
+	if instance.Image == "" {
+		instance.Image = personality.Image
+	}
+
 	mergeClaudeConfig(&personality.Claude, &instance.Claude)
 
 	// List fields: personality first, then instance appended.

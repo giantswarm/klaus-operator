@@ -17,6 +17,11 @@ type KlausInstanceSpec struct {
 	// Used for access control and namespace isolation.
 	Owner string `json:"owner"`
 
+	// Image overrides the container image for this instance.
+	// Takes precedence over personality image and the operator default.
+	// +optional
+	Image string `json:"image,omitempty"`
+
 	// Claude contains all Claude Code agent configuration.
 	// +optional
 	Claude ClaudeConfig `json:"claude,omitempty"`
@@ -444,6 +449,10 @@ type KlausInstanceStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Toolchain is the resolved container image name when different from the default.
+	// +optional
+	Toolchain string `json:"toolchain,omitempty"`
 }
 
 // +kubebuilder:object:root=true

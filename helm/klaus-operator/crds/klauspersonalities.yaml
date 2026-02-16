@@ -52,6 +52,13 @@ spec:
                 description:
                   description: Human-readable description of this personality.
                   type: string
+                image:
+                  description: >-
+                    Container image for instances using this personality.
+                    When set, overrides the operator's default klausImage.
+                    This should be a composite image containing both the language
+                    toolchain and the Klaus agent.
+                  type: string
                 claude:
                   description: Claude Code agent configuration defaults.
                   type: object
