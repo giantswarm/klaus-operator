@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -99,6 +100,22 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	merged := instance.DeepCopy()
 	if err := r.resolvePersonality(ctx, merged); err != nil {
 		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
+	}
+
+	// Detect inline MCP server configs that will be overridden by resolved
+	// KlausMCPServer references and emit informational events.
+	for _, ref := range merged.Spec.MCPServers {
+		if _, exists := merged.Spec.Claude.MCPServers[ref.Name]; exists {
+			r.Recorder.Event(&instance, corev1.EventTypeNormal, "MCPServerOverride",
+				fmt.Sprintf("KlausMCPServer %q overrides inline MCP server config with the same name", ref.Name))
+		}
+	}
+
+	// Resolve KlausMCPServer references and merge their configs and secrets
+	// into the merged spec. This must happen after personality merge so that
+	// personality-level MCP server refs are included.
+	if err := r.resolveMCPServers(ctx, merged); err != nil {
+		return r.updateStatusError(ctx, &instance, "MCPServerRefError", err)
 	}
 
 	// Validate the merged spec.
@@ -376,6 +393,14 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 	}
 
 	var errs []error
+
+	// Clean up stale MCP secrets, respecting multi-instance ownership. This
+	// only removes secrets no longer referenced by any non-deleting instance
+	// for the same owner.
+	if err := r.cleanupStaleMCPSecrets(ctx, instance.Spec.Owner, namespace); err != nil {
+		logger.Error(err, "failed to clean up stale MCP secrets")
+		errs = append(errs, err)
+	}
 	for _, obj := range inNamespaceResources {
 		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			logger.Error(err, "failed to delete resource",
@@ -465,6 +490,178 @@ func (r *KlausInstanceReconciler) updateStatusPending(ctx context.Context, insta
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
+// resolveMCPServers fetches referenced KlausMCPServer CRDs, converts their
+// configs to JSON, and merges them into the instance spec. Their secretRefs are
+// also injected (deduplicated) and the source Secrets are copied to the user
+// namespace so that secretKeyRef env vars can resolve at pod startup.
+//
+// This function also:
+//   - Checks the KlausMCPServer Ready condition to fail fast with a clear
+//     message when a referenced server is misconfigured or has missing secrets.
+//   - Detects secret name collisions across MCP servers that would cause
+//     conflicts in the user namespace.
+//   - Cleans up stale MCP secrets no longer referenced by any instance.
+func (r *KlausInstanceReconciler) resolveMCPServers(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
+	if len(instance.Spec.MCPServers) == 0 {
+		return nil
+	}
+
+	resolved := &resources.ResolvedMCPConfig{
+		Servers: make(map[string]runtime.RawExtension, len(instance.Spec.MCPServers)),
+	}
+
+	namespace := resources.UserNamespace(instance.Spec.Owner)
+
+	// Track which MCP servers own each secret name to detect collisions.
+	secretOwners := make(map[string]string)
+
+	for _, ref := range instance.Spec.MCPServers {
+		var server klausv1alpha1.KlausMCPServer
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      ref.Name,
+			Namespace: instance.Namespace,
+		}, &server); err != nil {
+			return fmt.Errorf("resolving MCP server %q: %w", ref.Name, err)
+		}
+
+		// Check if the MCP server is ready. If the controller has explicitly
+		// marked it as not ready (e.g. missing secrets, invalid spec), fail
+		// fast with a clear message instead of proceeding to copy potentially
+		// missing secrets. Servers that haven't been reconciled yet (no
+		// conditions) are allowed through.
+		readyCond := apimeta.FindStatusCondition(server.Status.Conditions, MCPServerConditionReady)
+		if readyCond != nil && readyCond.Status == metav1.ConditionFalse {
+			return fmt.Errorf("MCP server %q is not ready: %s", ref.Name, readyCond.Message)
+		}
+
+		// Convert the server spec to a RawExtension for .mcp.json assembly.
+		rawConfig, err := resources.ServerConfigToRawExtension(&server.Spec)
+		if err != nil {
+			return fmt.Errorf("marshaling MCP server %q config: %w", ref.Name, err)
+		}
+		resolved.Servers[ref.Name] = rawConfig
+
+		// Collect secretRefs and detect secret name collisions. Two different
+		// MCP servers referencing secrets with the same name would silently
+		// overwrite each other in the user namespace.
+		resolved.Secrets = append(resolved.Secrets, server.Spec.SecretRefs...)
+		for _, secretRef := range server.Spec.SecretRefs {
+			if prevOwner, exists := secretOwners[secretRef.SecretName]; exists && prevOwner != ref.Name {
+				return fmt.Errorf(
+					"secret name collision: secret %q is referenced by both MCP servers %q and %q; "+
+						"use uniquely-named secrets to avoid conflicts in the user namespace",
+					secretRef.SecretName, prevOwner, ref.Name,
+				)
+			}
+			secretOwners[secretRef.SecretName] = ref.Name
+		}
+
+		// Copy referenced Secrets from operator namespace to user namespace.
+		for _, secretRef := range server.Spec.SecretRefs {
+			if err := r.copyMCPSecret(ctx, instance, secretRef.SecretName, namespace); err != nil {
+				return fmt.Errorf("copying MCP secret %q for server %q: %w",
+					secretRef.SecretName, ref.Name, err)
+			}
+		}
+	}
+
+	// Clean up stale MCP secrets that are no longer referenced by any
+	// non-deleting instance for the same owner.
+	if err := r.cleanupStaleMCPSecrets(ctx, instance.Spec.Owner, namespace); err != nil {
+		return fmt.Errorf("cleaning up stale MCP secrets: %w", err)
+	}
+
+	resources.MergeResolvedMCPIntoInstance(resolved, &instance.Spec)
+	return nil
+}
+
+// copyMCPSecret copies a Secret from the operator namespace to the target user
+// namespace, ensuring that secretKeyRef env vars on the instance pod can resolve.
+// Labels are owner-scoped (not instance-specific) because multiple instances
+// for the same owner may share the same MCP secret.
+func (r *KlausInstanceReconciler) copyMCPSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, secretName, targetNamespace string) error {
+	srcSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      secretName,
+		Namespace: instance.Namespace,
+	}, srcSecret)
+	if err != nil {
+		return fmt.Errorf("fetching source secret: %w", err)
+	}
+
+	existing := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      secretName,
+		Namespace: targetNamespace,
+	}}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
+		existing.Data = srcSecret.Data
+		existing.Labels = resources.MCPSecretLabels(instance.Spec.Owner)
+		return nil
+	})
+	return err
+}
+
+// cleanupStaleMCPSecrets removes MCP secrets from the user namespace that are
+// no longer referenced by any non-deleting KlausInstance for the same owner.
+// This handles the case where a KlausMCPServer's secretRefs change or an
+// instance removes a reference to an MCP server.
+func (r *KlausInstanceReconciler) cleanupStaleMCPSecrets(ctx context.Context, owner, namespace string) error {
+	logger := log.FromContext(ctx)
+
+	// Build a lookup of MCP server name -> secret names.
+	var serverList klausv1alpha1.KlausMCPServerList
+	if err := r.List(ctx, &serverList, client.InNamespace(r.OperatorNamespace)); err != nil {
+		return fmt.Errorf("listing MCP servers: %w", err)
+	}
+	serverSecrets := make(map[string][]string, len(serverList.Items))
+	for _, server := range serverList.Items {
+		for _, ref := range server.Spec.SecretRefs {
+			serverSecrets[server.Name] = append(serverSecrets[server.Name], ref.SecretName)
+		}
+	}
+
+	// Collect the desired set of MCP secret names across all non-deleting
+	// instances that share the same user namespace.
+	desiredSecrets := make(map[string]bool)
+	var instanceList klausv1alpha1.KlausInstanceList
+	if err := r.List(ctx, &instanceList, client.InNamespace(r.OperatorNamespace)); err != nil {
+		return fmt.Errorf("listing instances: %w", err)
+	}
+	for _, inst := range instanceList.Items {
+		if resources.UserNamespace(inst.Spec.Owner) != namespace || !inst.DeletionTimestamp.IsZero() {
+			continue
+		}
+		for _, ref := range inst.Spec.MCPServers {
+			for _, secretName := range serverSecrets[ref.Name] {
+				desiredSecrets[secretName] = true
+			}
+		}
+	}
+
+	// List existing MCP secrets in the user namespace.
+	var secretList corev1.SecretList
+	if err := r.List(ctx, &secretList,
+		client.InNamespace(namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/component":  "mcp-secret",
+			"app.kubernetes.io/managed-by": "klaus-operator",
+		},
+	); err != nil {
+		return fmt.Errorf("listing MCP secrets: %w", err)
+	}
+
+	for i := range secretList.Items {
+		if !desiredSecrets[secretList.Items[i].Name] {
+			logger.Info("deleting stale MCP secret",
+				"secret", secretList.Items[i].Name, "namespace", namespace)
+			if err := r.Delete(ctx, &secretList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("deleting stale MCP secret %q: %w", secretList.Items[i].Name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // resolvePersonality fetches the referenced KlausPersonality and merges its
 // spec into the instance spec. If no personalityRef is set, this is a no-op.
 func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
@@ -527,6 +724,9 @@ func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(managedByPredicate)).
 		Watches(&klausv1alpha1.KlausPersonality{},
 			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingInstances(r.Client, r.OperatorNamespace)),
+		).
+		Watches(&klausv1alpha1.KlausMCPServer{},
+			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingMCPServerInstances(r.Client, r.OperatorNamespace)),
 		).
 		Named("klausinstance").
 		Complete(r)

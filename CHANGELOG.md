@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- KlausMCPServer CRD (`klaus.giantswarm.io/v1alpha1`) for shared MCP server configuration with Secret injection (#5).
+- KlausMCPServer controller with spec validation, Secret existence checks, status conditions (`Ready`, `SecretsValid`), and instance count tracking.
+- KlausInstance controller resolves `mcpServers` refs, copies Secrets to user namespaces, and merges resolved configs with Secret dedup.
+- KlausInstance controller watches KlausMCPServer changes and re-reconciles all referencing instances.
+- MCP server readiness gate: instance controller checks `Ready` condition on referenced KlausMCPServers and fails fast with a clear message when a server is misconfigured.
+- Secret name collision detection across MCP servers to prevent silent overwrites in user namespaces.
+- Stale MCP secret cleanup: reconciler removes orphaned MCP secrets from user namespaces when references change, respecting multi-instance ownership.
+- Field indexer (`spec.mcpServers.name`) for efficient instance lookups by MCP server name, replacing full list scans.
+- Override events: informational events emitted when a KlausMCPServer overrides an inline `claude.mcpServers` entry with the same name.
+- `${VAR}` expansion documented in CRD field descriptions for `env` and `headers`.
+- Unit tests for MCP server config marshaling, merge semantics, and secret deduplication.
 - KlausPersonality CRD (`klaus.giantswarm.io/v1alpha1`) for reusable instance configuration templates (#3).
 - KlausPersonality controller with validation, status conditions (`Ready`, `Valid`), and instance count tracking.
 - Merge logic for personality + instance specs: scalar fields use instance override, list fields append (with deduplication), map fields merge (instance wins on key conflict), pointer fields inherit when nil.
@@ -35,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stub CRDs for KlausPersonality and KlausMCPServer in the Helm chart (full implementation in #3 and #5).
 
 ### Changed
+
+- KlausMCPServer short name changed from `kms` to `kmcp` to avoid confusion with AWS KMS.
+- KlausMCPServer CRD description now documents merge semantics (resolved config takes precedence over inline entries with the same name).
 
 - Replaced manual get-create-or-update methods with `controllerutil.CreateOrUpdate` across all reconciled resources (Namespace, Secret, ConfigMap, Deployment, Service, ServiceAccount).
 - Replaced custom `setCondition` implementation with `apimeta.SetStatusCondition` from `k8s.io/apimachinery`.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -76,6 +77,14 @@ func main() {
 		anthropicKeyNs = operatorNamespace
 	}
 
+	// Register field indexer for efficient MCP server reference lookups.
+	ctx := context.Background()
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &klausv1alpha1.KlausInstance{},
+		controller.MCPServerRefIndexField, controller.IndexMCPServerRefs); err != nil {
+		setupLog.Error(err, "unable to create field indexer", "field", controller.MCPServerRefIndexField)
+		os.Exit(1)
+	}
+
 	// Set up the KlausInstance controller.
 	if err := (&controller.KlausInstanceReconciler{
 		Client:             mgr.GetClient(),
@@ -98,6 +107,17 @@ func main() {
 		OperatorNamespace: operatorNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KlausPersonality")
+		os.Exit(1)
+	}
+
+	// Set up the KlausMCPServer controller.
+	if err := (&controller.KlausMCPServerReconciler{
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		Recorder:          mgr.GetEventRecorderFor("klausmcpserver-controller"),
+		OperatorNamespace: operatorNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KlausMCPServer")
 		os.Exit(1)
 	}
 
