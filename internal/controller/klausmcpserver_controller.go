@@ -28,6 +28,25 @@ const (
 	MCPServerConditionSecretsValid = "SecretsValid"
 )
 
+// MCPServerRefIndexField is the field path used by the field indexer to look up
+// KlausInstance resources by referenced KlausMCPServer name.
+const MCPServerRefIndexField = "spec.mcpServers.name"
+
+// IndexMCPServerRefs extracts KlausMCPServer names from a KlausInstance for
+// the field indexer. This enables efficient lookups of instances by MCP server
+// name without requiring full list scans.
+func IndexMCPServerRefs(obj client.Object) []string {
+	instance, ok := obj.(*klausv1alpha1.KlausInstance)
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(instance.Spec.MCPServers))
+	for _, ref := range instance.Spec.MCPServers {
+		names = append(names, ref.Name)
+	}
+	return names
+}
+
 // KlausMCPServerReconciler reconciles a KlausMCPServer object.
 type KlausMCPServerReconciler struct {
 	client.Client
@@ -167,23 +186,16 @@ func (r *KlausMCPServerReconciler) validateSecrets(ctx context.Context, server *
 }
 
 // countReferencingInstances counts KlausInstance resources that reference this
-// MCP server by name.
+// MCP server by name using the MCPServerRefIndexField field indexer.
 func (r *KlausMCPServerReconciler) countReferencingInstances(ctx context.Context, serverName string) (int, error) {
 	var instanceList klausv1alpha1.KlausInstanceList
-	if err := r.List(ctx, &instanceList, client.InNamespace(r.OperatorNamespace)); err != nil {
+	if err := r.List(ctx, &instanceList,
+		client.InNamespace(r.OperatorNamespace),
+		client.MatchingFields{MCPServerRefIndexField: serverName},
+	); err != nil {
 		return 0, err
 	}
-
-	count := 0
-	for _, inst := range instanceList.Items {
-		for _, ref := range inst.Spec.MCPServers {
-			if ref.Name == serverName {
-				count++
-				break
-			}
-		}
-	}
-	return count, nil
+	return len(instanceList.Items), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -259,8 +271,8 @@ func (r *KlausMCPServerReconciler) mapSecretToMCPServers(ctx context.Context, ob
 }
 
 // EnqueueReferencingMCPServerInstances returns reconcile requests for all
-// KlausInstance resources that reference the given MCP server. Called by the
-// KlausInstanceReconciler's SetupWithManager to watch MCP server changes.
+// KlausInstance resources that reference the given MCP server. Uses the
+// MCPServerRefIndexField field indexer for efficient lookups.
 func EnqueueReferencingMCPServerInstances(c client.Client, operatorNamespace string) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		server, ok := obj.(*klausv1alpha1.KlausMCPServer)
@@ -269,23 +281,21 @@ func EnqueueReferencingMCPServerInstances(c client.Client, operatorNamespace str
 		}
 
 		var instanceList klausv1alpha1.KlausInstanceList
-		if err := c.List(ctx, &instanceList, client.InNamespace(operatorNamespace)); err != nil {
+		if err := c.List(ctx, &instanceList,
+			client.InNamespace(operatorNamespace),
+			client.MatchingFields{MCPServerRefIndexField: server.Name},
+		); err != nil {
 			return nil
 		}
 
 		var requests []reconcile.Request
 		for _, inst := range instanceList.Items {
-			for _, ref := range inst.Spec.MCPServers {
-				if ref.Name == server.Name {
-					requests = append(requests, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Name:      inst.Name,
-							Namespace: inst.Namespace,
-						},
-					})
-					break
-				}
-			}
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      inst.Name,
+					Namespace: inst.Namespace,
+				},
+			})
 		}
 		return requests
 	}

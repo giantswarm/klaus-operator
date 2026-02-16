@@ -237,6 +237,9 @@ type PluginReference struct {
 }
 
 // MCPServerReference references a KlausMCPServer CRD by name.
+// Merge semantics: if a referenced KlausMCPServer has the same name as an
+// inline entry in claude.mcpServers, the resolved KlausMCPServer config takes
+// precedence. An informational event is emitted when this override occurs.
 type MCPServerReference struct {
 	// Name is the name of the KlausMCPServer resource.
 	Name string `json:"name"`

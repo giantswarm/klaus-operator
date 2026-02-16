@@ -24,11 +24,15 @@ type KlausMCPServerSpec struct {
 	Args []string `json:"args,omitempty"`
 
 	// Env contains static environment variables for the MCP server process.
+	// Values support ${VAR} expansion -- the referenced variables are resolved
+	// from SecretRefs at pod startup.
 	// These are included in the .mcp.json config.
 	// +optional
 	Env map[string]string `json:"env,omitempty"`
 
 	// Headers contains HTTP headers for HTTP-based MCP servers.
+	// Values support ${VAR} expansion -- the referenced variables are resolved
+	// from SecretRefs at pod startup.
 	// These are included in the .mcp.json config.
 	// +optional
 	Headers map[string]string `json:"headers,omitempty"`
@@ -61,7 +65,7 @@ type KlausMCPServerStatus struct {
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Instances",type=integer,JSONPath=`.status.instanceCount`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-// +kubebuilder:resource:shortName=kms
+// +kubebuilder:resource:shortName=kmcp
 
 // KlausMCPServer defines a shared MCP server configuration that can be
 // referenced by KlausInstance resources. The operator resolves these

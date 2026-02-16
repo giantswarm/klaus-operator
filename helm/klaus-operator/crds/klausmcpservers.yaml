@@ -12,7 +12,7 @@ spec:
     plural: klausmcpservers
     singular: klausmcpserver
     shortNames:
-      - kms
+      - kmcp
   scope: Namespaced
   versions:
     - name: v1alpha1
@@ -36,6 +36,9 @@ spec:
             KlausMCPServer defines a shared MCP server configuration that can be
             referenced by KlausInstance resources. The operator resolves these
             references and assembles the MCP config with Secret injection.
+            Merge semantics: when a KlausInstance references a KlausMCPServer
+            whose name matches an inline claude.mcpServers entry, the resolved
+            KlausMCPServer config takes precedence over the inline entry.
           type: object
           properties:
             apiVersion:
@@ -65,7 +68,10 @@ spec:
                   items:
                     type: string
                 env:
-                  description: Static environment variables for the MCP server process.
+                  description: >-
+                    Static environment variables for the MCP server process.
+                    Values support ${VAR} expansion; referenced variables are
+                    resolved from secretRefs at pod startup.
                   type: object
                   additionalProperties:
                     type: string
@@ -92,7 +98,10 @@ spec:
                         additionalProperties:
                           type: string
                 headers:
-                  description: HTTP headers for HTTP-based MCP servers.
+                  description: >-
+                    HTTP headers for HTTP-based MCP servers. Values support
+                    ${VAR} expansion; referenced variables are resolved from
+                    secretRefs at pod startup.
                   type: object
                   additionalProperties:
                     type: string

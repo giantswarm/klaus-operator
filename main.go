@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -74,6 +75,14 @@ func main() {
 	}
 	if anthropicKeyNs == "" {
 		anthropicKeyNs = operatorNamespace
+	}
+
+	// Register field indexer for efficient MCP server reference lookups.
+	ctx := context.Background()
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &klausv1alpha1.KlausInstance{},
+		controller.MCPServerRefIndexField, controller.IndexMCPServerRefs); err != nil {
+		setupLog.Error(err, "unable to create field indexer", "field", controller.MCPServerRefIndexField)
+		os.Exit(1)
 	}
 
 	// Set up the KlausInstance controller.
