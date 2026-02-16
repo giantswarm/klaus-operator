@@ -1,8 +1,6 @@
 package resources
 
 import (
-	"k8s.io/apimachinery/pkg/runtime"
-
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
 
@@ -11,12 +9,15 @@ import (
 //
 //   - Scalar fields: instance overrides personality (non-zero instance value wins)
 //   - List fields: instance values are appended to personality values
-//     (plugins deduplicated by repository)
+//     (plugins deduplicated by repository; MCP refs/secrets deduplicated by
+//     name with instance overriding personality on conflict)
 //   - Map fields: personality entries are used as base; instance entries win on
 //     key conflict
 //   - Pointer/boolean fields: instance overrides personality when explicitly set
 //     (non-nil)
 //   - Empty/zero values in instance spec do not override personality defaults
+//
+// Callers must pass a deep-copied instance to avoid mutating the informer cache.
 func MergePersonalityIntoInstance(personality *klausv1alpha1.KlausPersonalitySpec, instance *klausv1alpha1.KlausInstanceSpec) {
 	mergeClaudeConfig(&personality.Claude, &instance.Claude)
 
@@ -27,10 +28,10 @@ func MergePersonalityIntoInstance(personality *klausv1alpha1.KlausPersonalitySpe
 	instance.AddDirs = mergeStringSlices(personality.AddDirs, instance.AddDirs)
 
 	// Map fields: personality as base, instance wins on key conflict.
-	instance.Skills = mergeSkillsMap(personality.Skills, instance.Skills)
-	instance.AgentFiles = mergeAgentFilesMap(personality.AgentFiles, instance.AgentFiles)
-	instance.Hooks = mergeRawExtensionMap(personality.Hooks, instance.Hooks)
-	instance.HookScripts = mergeStringMap(personality.HookScripts, instance.HookScripts)
+	instance.Skills = mergeMaps(personality.Skills, instance.Skills)
+	instance.AgentFiles = mergeMaps(personality.AgentFiles, instance.AgentFiles)
+	instance.Hooks = mergeMaps(personality.Hooks, instance.Hooks)
+	instance.HookScripts = mergeMaps(personality.HookScripts, instance.HookScripts)
 
 	// Pointer fields: instance overrides personality when explicitly set.
 	if instance.LoadAdditionalDirsMemory == nil {
@@ -111,14 +112,17 @@ func mergeClaudeConfig(personality, instance *klausv1alpha1.ClaudeConfig) {
 	instance.DisallowedTools = mergeStringSlices(personality.DisallowedTools, instance.DisallowedTools)
 
 	// Map fields: personality as base, instance wins on key conflict.
-	instance.MCPServers = mergeRawExtensionMap(personality.MCPServers, instance.MCPServers)
-	instance.Agents = mergeRawExtensionMap(personality.Agents, instance.Agents)
+	instance.MCPServers = mergeMaps(personality.MCPServers, instance.MCPServers)
+	instance.Agents = mergeMaps(personality.Agents, instance.Agents)
 }
 
 // mergePlugins merges personality plugins with instance plugins. Instance
 // plugins are appended to personality plugins, deduplicated by repository.
+// On duplicate repository, the instance version overrides the personality's.
 func mergePlugins(personality, instance []klausv1alpha1.PluginReference) []klausv1alpha1.PluginReference {
 	if len(personality) == 0 {
+		// Safe: caller operates on a deep copy, so returning the input
+		// slice does not alias the informer cache.
 		return instance
 	}
 	if len(instance) == 0 {
@@ -155,7 +159,10 @@ func mergePlugins(personality, instance []klausv1alpha1.PluginReference) []klaus
 	return merged
 }
 
-// mergeStringSlices appends instance values to personality values, preserving order.
+// mergeStringSlices appends instance values to personality values, preserving
+// order. Duplicates are intentionally kept -- downstream consumers (e.g.
+// Claude CLI flags) are tolerant of repeated entries, and deduplication here
+// would add complexity without clear benefit.
 func mergeStringSlices(personality, instance []string) []string {
 	if len(personality) == 0 {
 		return instance
@@ -169,8 +176,9 @@ func mergeStringSlices(personality, instance []string) []string {
 	return merged
 }
 
-// mergeMCPServerRefs appends instance MCP server references to personality
-// references, deduplicating by name.
+// mergeMCPServerRefs merges personality MCP server references with instance
+// references, deduplicating by name. On duplicate name, the instance version
+// overrides the personality's.
 func mergeMCPServerRefs(personality, instance []klausv1alpha1.MCPServerReference) []klausv1alpha1.MCPServerReference {
 	if len(personality) == 0 {
 		return instance
@@ -189,7 +197,15 @@ func mergeMCPServerRefs(personality, instance []klausv1alpha1.MCPServerReference
 		}
 	}
 	for _, ref := range instance {
-		if !seen[ref.Name] {
+		if seen[ref.Name] {
+			// Instance overrides personality on duplicate name.
+			for i := range merged {
+				if merged[i].Name == ref.Name {
+					merged[i] = ref
+					break
+				}
+			}
+		} else {
 			seen[ref.Name] = true
 			merged = append(merged, ref)
 		}
@@ -198,8 +214,9 @@ func mergeMCPServerRefs(personality, instance []klausv1alpha1.MCPServerReference
 	return merged
 }
 
-// mergeMCPServerSecrets appends instance secrets to personality secrets,
-// deduplicating by secret name.
+// mergeMCPServerSecrets merges personality secrets with instance secrets,
+// deduplicating by secret name. On duplicate secret name, the instance version
+// overrides the personality's.
 func mergeMCPServerSecrets(personality, instance []klausv1alpha1.MCPServerSecret) []klausv1alpha1.MCPServerSecret {
 	if len(personality) == 0 {
 		return instance
@@ -218,7 +235,15 @@ func mergeMCPServerSecrets(personality, instance []klausv1alpha1.MCPServerSecret
 		}
 	}
 	for _, s := range instance {
-		if !seen[s.SecretName] {
+		if seen[s.SecretName] {
+			// Instance overrides personality on duplicate secret name.
+			for i := range merged {
+				if merged[i].SecretName == s.SecretName {
+					merged[i] = s
+					break
+				}
+			}
+		} else {
 			seen[s.SecretName] = true
 			merged = append(merged, s)
 		}
@@ -227,9 +252,13 @@ func mergeMCPServerSecrets(personality, instance []klausv1alpha1.MCPServerSecret
 	return merged
 }
 
-// mergeSkillsMap merges personality skills with instance skills. Instance
-// entries win on key conflict.
-func mergeSkillsMap(personality, instance map[string]klausv1alpha1.SkillConfig) map[string]klausv1alpha1.SkillConfig {
+// mergeMaps merges two string-keyed maps. Personality entries form the base;
+// instance entries win on key conflict. Returns nil only when both inputs are
+// nil/empty.
+//
+// When one side is empty, the other side's map is returned directly. This is
+// safe because callers operate on a deep-copied instance spec.
+func mergeMaps[V any](personality, instance map[string]V) map[string]V {
 	if len(personality) == 0 {
 		return instance
 	}
@@ -237,67 +266,7 @@ func mergeSkillsMap(personality, instance map[string]klausv1alpha1.SkillConfig) 
 		return personality
 	}
 
-	merged := make(map[string]klausv1alpha1.SkillConfig, len(personality)+len(instance))
-	for k, v := range personality {
-		merged[k] = v
-	}
-	for k, v := range instance {
-		merged[k] = v // instance wins
-	}
-	return merged
-}
-
-// mergeAgentFilesMap merges personality agent files with instance agent files.
-// Instance entries win on key conflict.
-func mergeAgentFilesMap(personality, instance map[string]klausv1alpha1.AgentFileConfig) map[string]klausv1alpha1.AgentFileConfig {
-	if len(personality) == 0 {
-		return instance
-	}
-	if len(instance) == 0 {
-		return personality
-	}
-
-	merged := make(map[string]klausv1alpha1.AgentFileConfig, len(personality)+len(instance))
-	for k, v := range personality {
-		merged[k] = v
-	}
-	for k, v := range instance {
-		merged[k] = v // instance wins
-	}
-	return merged
-}
-
-// mergeRawExtensionMap merges personality entries with instance entries.
-// Instance entries win on key conflict.
-func mergeRawExtensionMap(personality, instance map[string]runtime.RawExtension) map[string]runtime.RawExtension {
-	if len(personality) == 0 {
-		return instance
-	}
-	if len(instance) == 0 {
-		return personality
-	}
-
-	merged := make(map[string]runtime.RawExtension, len(personality)+len(instance))
-	for k, v := range personality {
-		merged[k] = v
-	}
-	for k, v := range instance {
-		merged[k] = v // instance wins
-	}
-	return merged
-}
-
-// mergeStringMap merges personality entries with instance entries. Instance
-// entries win on key conflict.
-func mergeStringMap(personality, instance map[string]string) map[string]string {
-	if len(personality) == 0 {
-		return instance
-	}
-	if len(instance) == 0 {
-		return personality
-	}
-
-	merged := make(map[string]string, len(personality)+len(instance))
+	merged := make(map[string]V, len(personality)+len(instance))
 	for k, v := range personality {
 		merged[k] = v
 	}

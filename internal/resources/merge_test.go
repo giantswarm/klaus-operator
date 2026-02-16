@@ -388,7 +388,7 @@ func TestMergePersonalityIntoInstance_MCPServerSecretsDeduplicated(t *testing.T)
 	personality := &klausv1alpha1.KlausPersonalitySpec{
 		Claude: klausv1alpha1.ClaudeConfig{
 			MCPServerSecrets: []klausv1alpha1.MCPServerSecret{
-				{SecretName: "shared-secret", Env: map[string]string{"TOKEN": "key"}},
+				{SecretName: "shared-secret", Env: map[string]string{"TOKEN": "personality-key"}},
 			},
 		},
 	}
@@ -396,7 +396,7 @@ func TestMergePersonalityIntoInstance_MCPServerSecretsDeduplicated(t *testing.T)
 	instance := &klausv1alpha1.KlausInstanceSpec{
 		Claude: klausv1alpha1.ClaudeConfig{
 			MCPServerSecrets: []klausv1alpha1.MCPServerSecret{
-				{SecretName: "shared-secret", Env: map[string]string{"TOKEN": "different-key"}}, // Dupe.
+				{SecretName: "shared-secret", Env: map[string]string{"TOKEN": "instance-key"}}, // Override.
 				{SecretName: "instance-secret", Env: map[string]string{"API_KEY": "key"}},
 			},
 		},
@@ -407,9 +407,13 @@ func TestMergePersonalityIntoInstance_MCPServerSecretsDeduplicated(t *testing.T)
 	if len(instance.Claude.MCPServerSecrets) != 2 {
 		t.Fatalf("expected 2 MCP server secrets (deduped), got %d", len(instance.Claude.MCPServerSecrets))
 	}
-	// Personality's version comes first (since it was added first and dedup keeps first-seen).
+	// shared-secret appears first (personality position) but with instance's env (instance overrides).
 	if instance.Claude.MCPServerSecrets[0].SecretName != "shared-secret" {
 		t.Errorf("expected first secret to be shared-secret")
+	}
+	if instance.Claude.MCPServerSecrets[0].Env["TOKEN"] != "instance-key" {
+		t.Errorf("expected shared-secret TOKEN to be instance override 'instance-key', got %q",
+			instance.Claude.MCPServerSecrets[0].Env["TOKEN"])
 	}
 	if instance.Claude.MCPServerSecrets[1].SecretName != "instance-secret" {
 		t.Errorf("expected second secret to be instance-secret")

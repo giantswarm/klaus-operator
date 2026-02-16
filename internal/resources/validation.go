@@ -31,13 +31,18 @@ func validateHooksExclusivity(instance *klausv1alpha1.KlausInstance) error {
 	return nil
 }
 
-// validatePlugins validates plugin references: each plugin must have exactly
-// one of tag or digest (not both, not neither), and plugin short names must
-// be unique.
+// validatePlugins validates plugin references on a KlausInstance.
 func validatePlugins(instance *klausv1alpha1.KlausInstance) error {
+	return ValidatePluginRefs(instance.Spec.Plugins)
+}
+
+// ValidatePluginRefs validates a slice of plugin references: each plugin must
+// have exactly one of tag or digest (not both, not neither), digests must use
+// the sha256: prefix, and plugin short names must be unique.
+func ValidatePluginRefs(plugins []klausv1alpha1.PluginReference) error {
 	seen := make(map[string]string) // short name -> repository
 
-	for i, plugin := range instance.Spec.Plugins {
+	for i, plugin := range plugins {
 		// Tag XOR digest.
 		hasTag := plugin.Tag != ""
 		hasDigest := plugin.Digest != ""

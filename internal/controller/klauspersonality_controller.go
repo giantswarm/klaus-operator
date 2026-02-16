@@ -12,7 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
@@ -42,7 +42,7 @@ type KlausPersonalityReconciler struct {
 
 // Reconcile handles a KlausPersonality event.
 func (r *KlausPersonalityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+	logger := logf.FromContext(ctx)
 
 	// Fetch the KlausPersonality.
 	var personality klausv1alpha1.KlausPersonality
@@ -74,7 +74,9 @@ func (r *KlausPersonalityReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		r.Recorder.Event(&personality, "Warning", "ValidationError", err.Error())
 
 		personality.Status.ObservedGeneration = personality.Generation
-		_ = r.Status().Update(ctx, &personality)
+		if statusErr := r.Status().Update(ctx, &personality); statusErr != nil {
+			logger.Error(statusErr, "failed to update personality status after validation error")
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -122,36 +124,11 @@ func (r *KlausPersonalityReconciler) validatePersonality(personality *klausv1alp
 			"hooks are rendered to settings.json, but settingsFile points to a custom path")
 	}
 
-	// Validate plugins.
-	if err := validatePersonalityPlugins(personality.Spec.Plugins); err != nil {
+	// Validate plugins using the shared validation function.
+	if err := resources.ValidatePluginRefs(personality.Spec.Plugins); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// validatePersonalityPlugins checks plugin references in a personality spec.
-func validatePersonalityPlugins(plugins []klausv1alpha1.PluginReference) error {
-	seen := make(map[string]string)
-	for i, plugin := range plugins {
-		hasTag := plugin.Tag != ""
-		hasDigest := plugin.Digest != ""
-		if !hasTag && !hasDigest {
-			return fmt.Errorf("spec.plugins[%d] (%s): must specify either tag or digest",
-				i, plugin.Repository)
-		}
-		if hasTag && hasDigest {
-			return fmt.Errorf("spec.plugins[%d] (%s): tag and digest are mutually exclusive",
-				i, plugin.Repository)
-		}
-
-		shortName := resources.ShortPluginName(plugin.Repository)
-		if existing, ok := seen[shortName]; ok {
-			return fmt.Errorf("spec.plugins[%d] (%s): short name %q conflicts with %s",
-				i, plugin.Repository, shortName, existing)
-		}
-		seen[shortName] = plugin.Repository
-	}
 	return nil
 }
 
