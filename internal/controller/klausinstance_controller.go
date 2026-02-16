@@ -382,6 +382,27 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 		})
 	}
 
+	// Collect MCP secrets copied to the user namespace for this instance.
+	for _, ref := range instance.Spec.MCPServers {
+		var server klausv1alpha1.KlausMCPServer
+		if err := r.Get(ctx, types.NamespacedName{
+			Name:      ref.Name,
+			Namespace: instance.Namespace,
+		}, &server); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logger.Error(err, "failed to resolve MCP server for cleanup", "server", ref.Name)
+			}
+			continue
+		}
+		for _, secretRef := range server.Spec.SecretRefs {
+			inNamespaceResources = append(inNamespaceResources, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: secretRef.SecretName, Namespace: namespace,
+				},
+			})
+		}
+	}
+
 	var errs []error
 	for _, obj := range inNamespaceResources {
 		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
@@ -521,6 +542,8 @@ func (r *KlausInstanceReconciler) resolveMCPServers(ctx context.Context, instanc
 
 // copyMCPSecret copies a Secret from the operator namespace to the target user
 // namespace, ensuring that secretKeyRef env vars on the instance pod can resolve.
+// Labels are owner-scoped (not instance-specific) because multiple instances
+// for the same owner may share the same MCP secret.
 func (r *KlausInstanceReconciler) copyMCPSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, secretName, targetNamespace string) error {
 	srcSecret := &corev1.Secret{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -537,7 +560,7 @@ func (r *KlausInstanceReconciler) copyMCPSecret(ctx context.Context, instance *k
 	}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
 		existing.Data = srcSecret.Data
-		existing.Labels = resources.InstanceLabels(instance)
+		existing.Labels = resources.MCPSecretLabels(instance.Spec.Owner)
 		return nil
 	})
 	return err

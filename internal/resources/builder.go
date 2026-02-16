@@ -72,6 +72,18 @@ func InstanceLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
 	return labels
 }
 
+// MCPSecretLabels returns labels for MCP secrets copied to user namespaces.
+// These secrets may be shared by multiple instances for the same owner, so we
+// use managed-by and owner labels without instance-specific identifiers.
+func MCPSecretLabels(owner string) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":       "klaus",
+		"app.kubernetes.io/managed-by": "klaus-operator",
+		"app.kubernetes.io/component":  "mcp-secret",
+		"klaus.giantswarm.io/owner":    sanitizeLabelValue(owner),
+	}
+}
+
 // ConfigMapName returns the ConfigMap name for an instance.
 func ConfigMapName(instance *klausv1alpha1.KlausInstance) string {
 	return instance.Name + "-config"

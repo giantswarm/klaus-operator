@@ -53,7 +53,9 @@ func (r *KlausMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	logger.Info("reconciling KlausMCPServer", "name", server.Name)
 
-	// Validate spec.
+	// Validate spec. Validation errors are permanent (the user must fix the
+	// spec), so we update the status condition and return nil to avoid
+	// unnecessary requeuing with backoff.
 	if err := r.validateSpec(&server); err != nil {
 		apimeta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 			Type:               MCPServerConditionReady,
@@ -67,8 +69,9 @@ func (r *KlausMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		server.Status.ObservedGeneration = server.Generation
 		if statusErr := r.Status().Update(ctx, &server); statusErr != nil {
 			logger.Error(statusErr, "failed to update status after validation error")
+			return ctrl.Result{}, statusErr
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, nil
 	}
 
 	// Validate referenced Secrets exist in the operator namespace.
@@ -93,10 +96,11 @@ func (r *KlausMCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		})
 	}
 
-	// Count referencing instances.
+	// Count referencing instances. A transient error here would reset the
+	// count to 0 in the status, so we return the error to requeue.
 	instanceCount, err := r.countReferencingInstances(ctx, server.Name)
 	if err != nil {
-		logger.Error(err, "failed to count referencing instances")
+		return ctrl.Result{}, fmt.Errorf("counting referencing instances: %w", err)
 	}
 
 	// Update status.
@@ -141,6 +145,8 @@ func (r *KlausMCPServerReconciler) validateSpec(server *klausv1alpha1.KlausMCPSe
 		if server.Spec.Command == "" {
 			return fmt.Errorf("spec.command is required for type %q", server.Spec.Type)
 		}
+	default:
+		return fmt.Errorf("unsupported server type %q (valid types: streamable-http, sse, http, stdio)", server.Spec.Type)
 	}
 
 	return nil
@@ -181,12 +187,16 @@ func (r *KlausMCPServerReconciler) countReferencingInstances(ctx context.Context
 }
 
 // SetupWithManager sets up the controller with the Manager.
-// Watches KlausInstance changes to update instance counts.
+// Watches KlausInstance changes to update instance counts and Secret changes
+// to re-validate secret references (e.g., when a missing Secret is created).
 func (r *KlausMCPServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&klausv1alpha1.KlausMCPServer{}).
 		Watches(&klausv1alpha1.KlausInstance{},
 			handler.EnqueueRequestsFromMapFunc(r.mapInstanceToMCPServers),
+		).
+		Watches(&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.mapSecretToMCPServers),
 		).
 		Named("klausmcpserver").
 		Complete(r)
@@ -208,6 +218,42 @@ func (r *KlausMCPServerReconciler) mapInstanceToMCPServers(_ context.Context, ob
 				Namespace: instance.Namespace,
 			},
 		})
+	}
+	return requests
+}
+
+// mapSecretToMCPServers maps a Secret to any KlausMCPServer resources that
+// reference it via secretRefs. This ensures that when a previously-missing
+// Secret is created, the MCP server's SecretsValid condition is re-evaluated.
+func (r *KlausMCPServerReconciler) mapSecretToMCPServers(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	// Only consider Secrets in the operator namespace.
+	if secret.Namespace != r.OperatorNamespace {
+		return nil
+	}
+
+	var serverList klausv1alpha1.KlausMCPServerList
+	if err := r.List(ctx, &serverList, client.InNamespace(r.OperatorNamespace)); err != nil {
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, server := range serverList.Items {
+		for _, ref := range server.Spec.SecretRefs {
+			if ref.SecretName == secret.Name {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      server.Name,
+						Namespace: server.Namespace,
+					},
+				})
+				break
+			}
+		}
 	}
 	return requests
 }
