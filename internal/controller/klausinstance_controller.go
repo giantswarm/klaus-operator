@@ -149,10 +149,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 3. Copy git credential Secret (if workspace.gitSecretRef configured).
-	if err := r.copyGitSecret(ctx, merged, namespace); err != nil {
+	gitSecretOp, err := r.copyGitSecret(ctx, merged, namespace)
+	if err != nil {
 		return r.updateStatusError(ctx, &instance, "GitSecretError", err)
 	}
-	if resources.NeedsGitSecret(merged) {
+	if gitSecretOp == controllerutil.OperationResultCreated || gitSecretOp == controllerutil.OperationResultUpdated {
 		r.Recorder.Event(&instance, corev1.EventTypeNormal, "GitSecretReady",
 			"Git credential secret copied to user namespace")
 	}
@@ -186,13 +187,14 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		resolvedImage = merged.Spec.Image
 	}
 	dep := resources.BuildDeployment(merged, namespace, resolvedImage, r.GitCloneImage, cm.Data)
-	if resources.NeedsGitClone(merged) {
-		r.Recorder.Event(&instance, corev1.EventTypeNormal, "WorkspaceClone",
-			fmt.Sprintf("Workspace git clone configured for %s", merged.Spec.Workspace.GitRepo))
-	}
-	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
+	depOp, err := r.reconcileDeployment(ctx, &instance, dep)
+	if err != nil {
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
+	}
+	if resources.NeedsGitClone(merged) && (depOp == controllerutil.OperationResultCreated || depOp == controllerutil.OperationResultUpdated) {
+		r.Recorder.Event(&instance, corev1.EventTypeNormal, "WorkspaceClone",
+			fmt.Sprintf("Workspace git clone configured for %s", merged.Spec.Workspace.GitRepo))
 	}
 
 	// Check Deployment readiness before declaring Running.
@@ -320,7 +322,7 @@ func (r *KlausInstanceReconciler) ensureServiceAccount(ctx context.Context, inst
 	return err
 }
 
-func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *appsv1.Deployment) error {
+func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *appsv1.Deployment) (controllerutil.OperationResult, error) {
 	existing := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: desired.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
 		existing.Spec = desired.Spec
@@ -330,7 +332,7 @@ func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, insta
 	if op == controllerutil.OperationResultCreated {
 		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingDeployment", "Created Deployment "+desired.Name)
 	}
-	return err
+	return op, err
 }
 
 func (r *KlausInstanceReconciler) reconcileService(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *corev1.Service) error {
@@ -612,10 +614,10 @@ func (r *KlausInstanceReconciler) resolveMCPServers(ctx context.Context, instanc
 
 // copyGitSecret copies the workspace git credential Secret from the operator
 // namespace to the user namespace so the git-clone init container can access it.
-// This is a no-op when gitSecretRef is not configured.
-func (r *KlausInstanceReconciler) copyGitSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) error {
+// Returns OperationResultNone when gitSecretRef is not configured.
+func (r *KlausInstanceReconciler) copyGitSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (controllerutil.OperationResult, error) {
 	if !resources.NeedsGitSecret(instance) {
-		return nil
+		return controllerutil.OperationResultNone, nil
 	}
 
 	srcName := instance.Spec.Workspace.GitSecretRef.Name
@@ -624,23 +626,23 @@ func (r *KlausInstanceReconciler) copyGitSecret(ctx context.Context, instance *k
 		Name:      srcName,
 		Namespace: instance.Namespace,
 	}, srcSecret); err != nil {
-		return fmt.Errorf("fetching git secret %q: %w", srcName, err)
+		return controllerutil.OperationResultNone, fmt.Errorf("fetching git secret %q: %w", srcName, err)
 	}
 
 	desired := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 		Name:      resources.GitSecretName(instance),
 		Namespace: namespace,
 	}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
 		desired.Type = srcSecret.Type
 		desired.Data = srcSecret.Data
 		desired.Labels = resources.InstanceLabels(instance)
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("reconciling git secret copy: %w", err)
+		return controllerutil.OperationResultNone, fmt.Errorf("reconciling git secret copy: %w", err)
 	}
-	return nil
+	return op, nil
 }
 
 // copyMCPSecret copies a Secret from the operator namespace to the target user

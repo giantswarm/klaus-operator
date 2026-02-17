@@ -124,7 +124,7 @@ func GitSecretName(instance *klausv1alpha1.KlausInstance) string {
 }
 
 // GitSecretKey returns the Secret data key for the git credential, defaulting
-// to "ssh-privatekey" when unset.
+// to "token" when unset.
 func GitSecretKey(instance *klausv1alpha1.KlausInstance) string {
 	if instance.Spec.Workspace != nil &&
 		instance.Spec.Workspace.GitSecretRef != nil &&

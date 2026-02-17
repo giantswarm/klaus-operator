@@ -158,6 +158,7 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 				RunAsUser:                ptr.To(int64(1000)),
 				RunAsGroup:               ptr.To(int64(1000)),
 				AllowPrivilegeEscalation: ptr.To(false),
+				ReadOnlyRootFilesystem:   ptr.To(true),
 				Capabilities: &corev1.Capabilities{
 					Drop: []corev1.Capability{"ALL"},
 				},
@@ -180,6 +181,11 @@ func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey strin
 	quotedRepo := shellQuote(gitRepo)
 
 	var parts []string
+
+	// Fail fast on any command error. The || echo 'WARNING: ...' lines in
+	// the update path are structured to not trigger set -e.
+	parts = append(parts, "set -e")
+
 	cloneURL := quotedRepo
 
 	if hasSecret {
@@ -193,40 +199,31 @@ func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey strin
 		cloneURL = `"$AUTH_URL"`
 	}
 
+	// Fresh clone vs incremental update.
+	parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
+	if gitRef != "" {
+		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), cloneURL, WorkspaceMountPath))
+	} else {
+		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, WorkspaceMountPath))
+	}
+	if hasSecret {
+		parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
+	}
+	parts = append(parts, "else")
+	parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
+	if hasSecret {
+		parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
+	}
 	if gitRef != "" {
 		quotedRef := shellQuote(gitRef)
-		parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
-		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", quotedRef, cloneURL, WorkspaceMountPath))
-		if hasSecret {
-			parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
-		}
-		parts = append(parts, "else")
-		parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
-		if hasSecret {
-			parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
-		}
 		parts = append(parts, fmt.Sprintf("  git fetch origin && git checkout %s && git pull origin %s || echo 'WARNING: git update failed, using existing checkout'", quotedRef, quotedRef))
-		if hasSecret {
-			parts = append(parts, `  git remote set-url origin "$REPO"`)
-		}
-		parts = append(parts, "fi")
 	} else {
-		parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
-		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, WorkspaceMountPath))
-		if hasSecret {
-			parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
-		}
-		parts = append(parts, "else")
-		parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
-		if hasSecret {
-			parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
-		}
 		parts = append(parts, "  git pull || echo 'WARNING: git update failed, using existing checkout'")
-		if hasSecret {
-			parts = append(parts, `  git remote set-url origin "$REPO"`)
-		}
-		parts = append(parts, "fi")
 	}
+	if hasSecret {
+		parts = append(parts, `  git remote set-url origin "$REPO"`)
+	}
+	parts = append(parts, "fi")
 
 	return strings.Join(parts, "\n")
 }
