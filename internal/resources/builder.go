@@ -52,7 +52,7 @@ const (
 	GitSecretMountPath = "/etc/git-secret"
 
 	// DefaultGitSecretKey is the default key in the git Secret data.
-	DefaultGitSecretKey = "ssh-privatekey"
+	DefaultGitSecretKey = "token"
 
 	// DefaultGitCloneImage is the default image for the git clone init container.
 	// Pinned to a specific version for reproducible deployments; override via

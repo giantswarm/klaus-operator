@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Git clone init container for workspace: when `workspace.gitRepo` is set, the operator prepends an init container that clones the repository into the workspace PVC before the main container starts. Supports incremental updates on restarts (#16).
-- `workspace.gitSecretRef` field on KlausInstance for private repository cloning. The operator copies the referenced Secret (preserving its type) to the user namespace and configures SSH-based git authentication in the init container (#16).
+- `workspace.gitSecretRef` field on KlausInstance for private repository cloning via HTTPS access tokens (PAT or fine-grained token). The operator copies the referenced Secret (preserving its type) to the user namespace and injects the token into the clone URL (#16).
 - `--git-clone-image` CLI flag to configure the init container image for workspace git clones (defaults to `alpine/git:v2.47.2`).
 - CRD validation patterns on `workspace.gitRepo`, `workspace.gitRef`, and `gitSecretRef.key` to reject shell metacharacters.
 - Spec validation: `workspace.gitSecretRef` now requires `workspace.gitRepo` to be set.
+- Kubernetes events for git credential copy and workspace clone configuration for improved observability.
 - KlausMCPServer CRD (`klaus.giantswarm.io/v1alpha1`) for shared MCP server configuration with Secret injection (#5).
 - KlausMCPServer controller with spec validation, Secret existence checks, status conditions (`Ready`, `SecretsValid`), and instance count tracking.
 - KlausInstance controller resolves `mcpServers` refs, copies Secrets to user namespaces, and merges resolved configs with Secret dedup.
@@ -55,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git clone init container image pinned to `alpine/git:v2.47.2` instead of `:latest` for reproducible deployments; configurable via `--git-clone-image`.
 - Git clone shell script now single-quotes user-supplied `gitRepo` and `gitRef` values as defense-in-depth against shell injection.
 - Git clone update path now logs a warning instead of silently succeeding when `git pull` fails (`|| true` replaced with `|| echo WARNING`).
+- Git clone authentication changed from SSH (`GIT_SSH_COMMAND`) to HTTPS token-based auth via `x-access-token` URL injection; credentials are stripped from the persisted remote URL after clone/fetch.
+- Default git secret key changed from `ssh-privatekey` to `token` to reflect HTTPS token auth.
+- CRDs regenerated with controller-gen to include validation patterns and updated field descriptions.
 - KlausMCPServer short name changed from `kms` to `kmcp` to avoid confusion with AWS KMS.
 - KlausMCPServer CRD description now documents merge semantics (resolved config takes precedence over inline entries with the same name).
 

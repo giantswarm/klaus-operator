@@ -284,10 +284,10 @@ func TestBuildDeployment_WithGitCloneAndSecret(t *testing.T) {
 		Spec: klausv1alpha1.KlausInstanceSpec{
 			Owner: "user@example.com",
 			Workspace: &klausv1alpha1.WorkspaceConfig{
-				GitRepo: "git@github.com:example/project.git",
+				GitRepo: "https://github.com/example/project.git",
 				GitRef:  "develop",
 				GitSecretRef: &klausv1alpha1.GitSecretReference{
-					Name: "github-deploy-key",
+					Name: "github-pat",
 				},
 			},
 		},
@@ -330,13 +330,24 @@ func TestBuildDeployment_WithGitCloneAndSecret(t *testing.T) {
 		t.Error("expected git-secret volume")
 	}
 
-	// Verify the script contains SSH configuration.
+	// Verify the script uses HTTPS token auth.
 	script := initContainers[0].Args[0]
-	if !strings.Contains(script, "GIT_SSH_COMMAND") {
-		t.Error("expected GIT_SSH_COMMAND in clone script when gitSecretRef is set")
+	if !strings.Contains(script, "x-access-token") {
+		t.Error("expected x-access-token in clone script when gitSecretRef is set")
 	}
-	if !strings.Contains(script, "ssh-privatekey") {
-		t.Error("expected default secret key 'ssh-privatekey' in clone script")
+	if !strings.Contains(script, "GIT_TERMINAL_PROMPT=0") {
+		t.Error("expected GIT_TERMINAL_PROMPT=0 in clone script")
+	}
+	if !strings.Contains(script, DefaultGitSecretKey) {
+		t.Errorf("expected default secret key %q in clone script", DefaultGitSecretKey)
+	}
+	// Verify credentials are stripped from remote after clone.
+	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
+		t.Error("expected credential cleanup (git remote set-url) in clone script")
+	}
+	// SSH should not be used.
+	if strings.Contains(script, "GIT_SSH_COMMAND") {
+		t.Error("unexpected GIT_SSH_COMMAND; should use HTTPS token auth")
 	}
 }
 
@@ -346,10 +357,10 @@ func TestBuildDeployment_WithGitCloneCustomKey(t *testing.T) {
 		Spec: klausv1alpha1.KlausInstanceSpec{
 			Owner: "user@example.com",
 			Workspace: &klausv1alpha1.WorkspaceConfig{
-				GitRepo: "git@github.com:example/project.git",
+				GitRepo: "https://github.com/example/project.git",
 				GitSecretRef: &klausv1alpha1.GitSecretReference{
-					Name: "my-key",
-					Key:  "id_ed25519",
+					Name: "my-token",
+					Key:  "gh-pat",
 				},
 			},
 		},
@@ -363,8 +374,8 @@ func TestBuildDeployment_WithGitCloneCustomKey(t *testing.T) {
 	}
 
 	script := initContainers[0].Args[0]
-	if !strings.Contains(script, "id_ed25519") {
-		t.Error("expected custom key 'id_ed25519' in clone script")
+	if !strings.Contains(script, "gh-pat") {
+		t.Error("expected custom key 'gh-pat' in clone script")
 	}
 }
 
@@ -393,7 +404,10 @@ func TestBuildGitCloneScript_WithRef(t *testing.T) {
 		t.Error("expected git checkout 'main' (quoted) in update path")
 	}
 	if strings.Contains(script, "GIT_SSH_COMMAND") {
-		t.Error("unexpected GIT_SSH_COMMAND when hasSecret is false")
+		t.Error("unexpected GIT_SSH_COMMAND")
+	}
+	if strings.Contains(script, "x-access-token") {
+		t.Error("unexpected token auth when hasSecret is false")
 	}
 	if strings.Contains(script, "|| true") {
 		t.Error("unexpected || true; should use warning echo instead")
@@ -411,15 +425,37 @@ func TestBuildGitCloneScript_WithoutRef(t *testing.T) {
 }
 
 func TestBuildGitCloneScript_WithSecret(t *testing.T) {
-	script := buildGitCloneScript("git@github.com:example/project.git", "main", true, "ssh-privatekey")
-	if !strings.Contains(script, "GIT_SSH_COMMAND") {
-		t.Error("expected GIT_SSH_COMMAND when hasSecret is true")
+	script := buildGitCloneScript("https://github.com/example/project.git", "main", true, "token")
+	if !strings.Contains(script, "x-access-token") {
+		t.Error("expected x-access-token in clone script when hasSecret is true")
 	}
-	if !strings.Contains(script, "/etc/git-secret/ssh-privatekey") {
-		t.Error("expected secret key path in GIT_SSH_COMMAND")
+	if !strings.Contains(script, "/etc/git-secret/token") {
+		t.Error("expected secret key path in token setup")
 	}
-	if !strings.Contains(script, "StrictHostKeyChecking=accept-new") {
-		t.Error("expected StrictHostKeyChecking=accept-new in SSH command")
+	if !strings.Contains(script, "GIT_TERMINAL_PROMPT=0") {
+		t.Error("expected GIT_TERMINAL_PROMPT=0 to suppress credential prompts")
+	}
+	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
+		t.Error("expected credential cleanup after clone/fetch")
+	}
+	if strings.Contains(script, "GIT_SSH_COMMAND") {
+		t.Error("unexpected GIT_SSH_COMMAND; should use HTTPS token auth")
+	}
+}
+
+func TestBuildGitCloneScript_WithSecretNoRef(t *testing.T) {
+	script := buildGitCloneScript("https://github.com/example/project.git", "", true, "token")
+	if !strings.Contains(script, "x-access-token") {
+		t.Error("expected x-access-token in clone script")
+	}
+	if !strings.Contains(script, `"$AUTH_URL"`) {
+		t.Error("expected AUTH_URL variable used for clone")
+	}
+	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
+		t.Error("expected credential cleanup in both branches")
+	}
+	if strings.Contains(script, "--branch") {
+		t.Error("unexpected --branch when gitRef is empty")
 	}
 }
 

@@ -152,6 +152,10 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.copyGitSecret(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "GitSecretError", err)
 	}
+	if resources.NeedsGitSecret(merged) {
+		r.Recorder.Event(&instance, corev1.EventTypeNormal, "GitSecretReady",
+			"Git credential secret copied to user namespace")
+	}
 
 	// 4. Create/update ConfigMap.
 	cm, err := resources.BuildConfigMap(merged, namespace)
@@ -182,6 +186,10 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		resolvedImage = merged.Spec.Image
 	}
 	dep := resources.BuildDeployment(merged, namespace, resolvedImage, r.GitCloneImage, cm.Data)
+	if resources.NeedsGitClone(merged) {
+		r.Recorder.Event(&instance, corev1.EventTypeNormal, "WorkspaceClone",
+			fmt.Sprintf("Workspace git clone configured for %s", merged.Spec.Workspace.GitRepo))
+	}
 	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)

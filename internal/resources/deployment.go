@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -170,40 +171,64 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 // PVC already contains a previous checkout. User-supplied values (gitRepo,
 // gitRef) are single-quoted to prevent shell injection. CRD validation
 // patterns provide an additional layer of defense.
+//
+// When a git secret is configured, HTTPS token authentication is used:
+// the token is read from the mounted secret, injected into the clone URL
+// via POSIX parameter expansion, and stripped from the persisted remote
+// after clone/fetch to avoid leaking credentials on the workspace PVC.
 func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey string) string {
-	var sshSetup string
+	quotedRepo := shellQuote(gitRepo)
+
+	var parts []string
+	cloneURL := quotedRepo
+
 	if hasSecret {
 		keyPath := path.Join(GitSecretMountPath, secretKey)
-		sshSetup = fmt.Sprintf(
-			`export GIT_SSH_COMMAND='ssh -i %s -o StrictHostKeyChecking=accept-new'`+"\n",
-			keyPath,
+		parts = append(parts,
+			"export GIT_TERMINAL_PROMPT=0",
+			fmt.Sprintf("TOKEN=$(cat '%s')", keyPath),
+			"REPO="+quotedRepo,
+			`AUTH_URL="${REPO%%://*}://x-access-token:${TOKEN}@${REPO#*://}"`,
 		)
+		cloneURL = `"$AUTH_URL"`
 	}
-
-	quotedRepo := shellQuote(gitRepo)
 
 	if gitRef != "" {
 		quotedRef := shellQuote(gitRef)
-		return fmt.Sprintf(`%sif [ ! -d %s/.git ]; then
-  git clone --branch %s %s %s
-else
-  cd %s && git fetch origin && git checkout %s && git pull origin %s || echo 'WARNING: git update failed, using existing checkout'
-fi`,
-			sshSetup,
-			WorkspaceMountPath, quotedRef, quotedRepo, WorkspaceMountPath,
-			WorkspaceMountPath, quotedRef, quotedRef,
-		)
+		parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
+		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", quotedRef, cloneURL, WorkspaceMountPath))
+		if hasSecret {
+			parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
+		}
+		parts = append(parts, "else")
+		parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
+		if hasSecret {
+			parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
+		}
+		parts = append(parts, fmt.Sprintf("  git fetch origin && git checkout %s && git pull origin %s || echo 'WARNING: git update failed, using existing checkout'", quotedRef, quotedRef))
+		if hasSecret {
+			parts = append(parts, `  git remote set-url origin "$REPO"`)
+		}
+		parts = append(parts, "fi")
+	} else {
+		parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
+		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, WorkspaceMountPath))
+		if hasSecret {
+			parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
+		}
+		parts = append(parts, "else")
+		parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
+		if hasSecret {
+			parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
+		}
+		parts = append(parts, "  git pull || echo 'WARNING: git update failed, using existing checkout'")
+		if hasSecret {
+			parts = append(parts, `  git remote set-url origin "$REPO"`)
+		}
+		parts = append(parts, "fi")
 	}
 
-	return fmt.Sprintf(`%sif [ ! -d %s/.git ]; then
-  git clone %s %s
-else
-  cd %s && git pull || echo 'WARNING: git update failed, using existing checkout'
-fi`,
-		sshSetup,
-		WorkspaceMountPath, quotedRepo, WorkspaceMountPath,
-		WorkspaceMountPath,
-	)
+	return strings.Join(parts, "\n")
 }
 
 // buildImagePullSecrets converts the list of pull secret names to

@@ -315,18 +315,21 @@ type WorkspaceConfig struct {
 	// +optional
 	GitRef string `json:"gitRef,omitempty"`
 
-	// GitSecretRef references a Secret with git credentials for cloning private repos.
-	// The operator copies the Secret to the user namespace and mounts it in the init container.
+	// GitSecretRef references a Secret containing an HTTPS access token for cloning
+	// private repositories. The operator copies the Secret to the user namespace and
+	// configures the git-clone init container to authenticate using the token.
+	// The repository URL must use HTTPS (e.g., https://github.com/org/repo.git).
 	// +optional
 	GitSecretRef *GitSecretReference `json:"gitSecretRef,omitempty"`
 }
 
-// GitSecretReference references a Kubernetes Secret containing git credentials.
+// GitSecretReference references a Kubernetes Secret containing a git access
+// token (PAT or fine-grained token) for cloning private repositories over HTTPS.
 type GitSecretReference struct {
 	// Name is the name of the Kubernetes Secret in the operator namespace.
 	Name string `json:"name"`
 
-	// Key is the key in the Secret data. Defaults to "ssh-privatekey".
+	// Key is the key in the Secret data containing the access token. Defaults to "token".
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9._-]+$`
 	// +optional
 	Key string `json:"key,omitempty"`

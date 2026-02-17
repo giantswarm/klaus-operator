@@ -468,19 +468,24 @@ spec:
                 properties:
                   gitRef:
                     description: GitRef is the git ref to checkout.
+                    pattern: ^[a-zA-Z0-9._/^~-]+$
                     type: string
                   gitRepo:
                     description: GitRepo is a git repository URL to clone into the
                       workspace.
+                    pattern: ^[a-zA-Z0-9@._:/%+~-]+$
                     type: string
                   gitSecretRef:
                     description: |-
-                      GitSecretRef references a Secret with git credentials for cloning private repos.
-                      The operator copies the Secret to the user namespace and mounts it in the init container.
+                      GitSecretRef references a Secret containing an HTTPS access token for cloning
+                      private repositories. The operator copies the Secret to the user namespace and
+                      configures the git-clone init container to authenticate using the token.
+                      The repository URL must use HTTPS (e.g., https://github.com/org/repo.git).
                     properties:
                       key:
-                        description: Key is the key in the Secret data. Defaults to
-                          "ssh-privatekey".
+                        description: Key is the key in the Secret data containing
+                          the access token. Defaults to "token".
+                        pattern: ^[a-zA-Z0-9._-]+$
                         type: string
                       name:
                         description: Name is the name of the Kubernetes Secret in
