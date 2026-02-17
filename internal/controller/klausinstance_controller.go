@@ -44,6 +44,7 @@ type KlausInstanceReconciler struct {
 	Scheme             *runtime.Scheme
 	Recorder           record.EventRecorder
 	KlausImage         string
+	GitCloneImage      string
 	AnthropicKeySecret string
 	AnthropicKeyNs     string
 	OperatorNamespace  string
@@ -147,7 +148,17 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	// 3. Create/update ConfigMap.
+	// 3. Copy git credential Secret (if workspace.gitSecretRef configured).
+	gitSecretOp, err := r.copyGitSecret(ctx, merged, namespace)
+	if err != nil {
+		return r.updateStatusError(ctx, &instance, "GitSecretError", err)
+	}
+	if gitSecretOp == controllerutil.OperationResultCreated || gitSecretOp == controllerutil.OperationResultUpdated {
+		r.Recorder.Event(&instance, corev1.EventTypeNormal, "GitSecretReady",
+			"Git credential secret copied to user namespace")
+	}
+
+	// 4. Create/update ConfigMap.
 	cm, err := resources.BuildConfigMap(merged, namespace)
 	if err != nil {
 		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "BuildError", err.Error())
@@ -159,26 +170,31 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	setCondition(&instance, ConditionConfigReady, metav1.ConditionTrue, "Reconciled", "ConfigMap reconciled")
 
-	// 4. Create/update PVC (if workspace configured).
+	// 5. Create/update PVC (if workspace configured).
 	if err := r.reconcilePVC(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "PVCError", err)
 	}
 
-	// 5. Ensure ServiceAccount.
+	// 6. Ensure ServiceAccount.
 	if err := r.ensureServiceAccount(ctx, merged, namespace); err != nil {
 		return r.updateStatusError(ctx, &instance, "ServiceAccountError", err)
 	}
 
-	// 6. Create/update Deployment.
+	// 7. Create/update Deployment.
 	// Resolve the container image: instance > personality > operator default.
 	resolvedImage := r.KlausImage
 	if merged.Spec.Image != "" {
 		resolvedImage = merged.Spec.Image
 	}
-	dep := resources.BuildDeployment(merged, namespace, resolvedImage, cm.Data)
-	if err := r.reconcileDeployment(ctx, &instance, dep); err != nil {
+	dep := resources.BuildDeployment(merged, namespace, resolvedImage, r.GitCloneImage, cm.Data)
+	depOp, err := r.reconcileDeployment(ctx, &instance, dep)
+	if err != nil {
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "ReconcileError", err.Error())
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
+	}
+	if resources.NeedsGitClone(merged) && (depOp == controllerutil.OperationResultCreated || depOp == controllerutil.OperationResultUpdated) {
+		r.Recorder.Event(&instance, corev1.EventTypeNormal, "WorkspaceClone",
+			fmt.Sprintf("Workspace git clone configured for %s", merged.Spec.Workspace.GitRepo))
 	}
 
 	// Check Deployment readiness before declaring Running.
@@ -193,13 +209,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
 	}
 
-	// 7. Create/update Service.
+	// 8. Create/update Service.
 	svc := resources.BuildService(merged, namespace)
 	if err := r.reconcileService(ctx, &instance, svc); err != nil {
 		return r.updateStatusError(ctx, &instance, "ServiceError", err)
 	}
 
-	// 8. Create/update MCPServer CRD in muster namespace.
+	// 9. Create/update MCPServer CRD in muster namespace.
 	if err := r.reconcileMCPServer(ctx, merged, namespace); err != nil {
 		// MCPServer creation failure is not fatal -- log and continue.
 		logger.Error(err, "failed to reconcile MCPServer CRD")
@@ -209,7 +225,7 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCondition(&instance, ConditionMCPServerReady, metav1.ConditionTrue, "Reconciled", "MCPServer CRD reconciled")
 	}
 
-	// 9. Update status. Use the merged spec for status computation (plugin
+	// 10. Update status. Use the merged spec for status computation (plugin
 	// counts, mode) so the status reflects the effective configuration.
 	if deploymentReady {
 		return r.updateStatusRunning(ctx, &instance, namespace, resolvedImage)
@@ -306,7 +322,7 @@ func (r *KlausInstanceReconciler) ensureServiceAccount(ctx context.Context, inst
 	return err
 }
 
-func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *appsv1.Deployment) error {
+func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *appsv1.Deployment) (controllerutil.OperationResult, error) {
 	existing := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: desired.Name, Namespace: desired.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, existing, func() error {
 		existing.Spec = desired.Spec
@@ -316,7 +332,7 @@ func (r *KlausInstanceReconciler) reconcileDeployment(ctx context.Context, insta
 	if op == controllerutil.OperationResultCreated {
 		r.Recorder.Event(instance, corev1.EventTypeNormal, "CreatingDeployment", "Created Deployment "+desired.Name)
 	}
-	return err
+	return op, err
 }
 
 func (r *KlausInstanceReconciler) reconcileService(ctx context.Context, instance *klausv1alpha1.KlausInstance, desired *corev1.Service) error {
@@ -393,6 +409,15 @@ func (r *KlausInstanceReconciler) reconcileDelete(ctx context.Context, instance 
 		inNamespaceResources = append(inNamespaceResources, &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: resources.PVCName(instance), Namespace: namespace,
+			},
+		})
+	}
+
+	// Git credential secret only exists if gitSecretRef was configured.
+	if resources.NeedsGitSecret(instance) {
+		inNamespaceResources = append(inNamespaceResources, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: resources.GitSecretName(instance), Namespace: namespace,
 			},
 		})
 	}
@@ -585,6 +610,39 @@ func (r *KlausInstanceReconciler) resolveMCPServers(ctx context.Context, instanc
 
 	resources.MergeResolvedMCPIntoInstance(resolved, &instance.Spec)
 	return nil
+}
+
+// copyGitSecret copies the workspace git credential Secret from the operator
+// namespace to the user namespace so the git-clone init container can access it.
+// Returns OperationResultNone when gitSecretRef is not configured.
+func (r *KlausInstanceReconciler) copyGitSecret(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace string) (controllerutil.OperationResult, error) {
+	if !resources.NeedsGitSecret(instance) {
+		return controllerutil.OperationResultNone, nil
+	}
+
+	srcName := instance.Spec.Workspace.GitSecretRef.Name
+	srcSecret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      srcName,
+		Namespace: instance.Namespace,
+	}, srcSecret); err != nil {
+		return controllerutil.OperationResultNone, fmt.Errorf("fetching git secret %q: %w", srcName, err)
+	}
+
+	desired := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name:      resources.GitSecretName(instance),
+		Namespace: namespace,
+	}}
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, desired, func() error {
+		desired.Type = srcSecret.Type
+		desired.Data = srcSecret.Data
+		desired.Labels = resources.InstanceLabels(instance)
+		return nil
+	})
+	if err != nil {
+		return controllerutil.OperationResultNone, fmt.Errorf("reconciling git secret copy: %w", err)
+	}
+	return op, nil
 }
 
 // copyMCPSecret copies a Secret from the operator namespace to the target user

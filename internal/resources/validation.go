@@ -17,6 +17,9 @@ func ValidateSpec(instance *klausv1alpha1.KlausInstance) error {
 	if err := validatePlugins(instance); err != nil {
 		return err
 	}
+	if err := validateWorkspace(instance); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -27,6 +30,19 @@ func validateHooksExclusivity(instance *klausv1alpha1.KlausInstance) error {
 	if len(instance.Spec.Hooks) > 0 && instance.Spec.Claude.SettingsFile != "" {
 		return fmt.Errorf("spec.hooks and spec.claude.settingsFile are mutually exclusive: " +
 			"hooks are rendered to settings.json, but settingsFile points to a custom path")
+	}
+	return nil
+}
+
+// validateWorkspace checks workspace configuration consistency: gitSecretRef
+// requires gitRepo to be set, otherwise the Secret is copied and a volume
+// is created but nothing consumes them.
+func validateWorkspace(instance *klausv1alpha1.KlausInstance) error {
+	if instance.Spec.Workspace == nil {
+		return nil
+	}
+	if instance.Spec.Workspace.GitSecretRef != nil && instance.Spec.Workspace.GitRepo == "" {
+		return fmt.Errorf("spec.workspace.gitSecretRef requires spec.workspace.gitRepo to be set")
 	}
 	return nil
 }

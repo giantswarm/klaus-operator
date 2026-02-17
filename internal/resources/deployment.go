@@ -1,6 +1,10 @@
 package resources
 
 import (
+	"fmt"
+	"path"
+	"strings"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,7 +16,7 @@ import (
 
 // BuildDeployment creates the Deployment for a KlausInstance, mirroring the
 // standalone Helm chart's deployment.yaml rendering.
-func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImage string, configMapData map[string]string) *appsv1.Deployment {
+func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImage, gitCloneImage string, configMapData map[string]string) *appsv1.Deployment {
 	labels := InstanceLabels(instance)
 	cmName := ConfigMapName(instance)
 	secName := SecretName(instance)
@@ -33,6 +37,8 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 		podAnnotations["checksum/config"] = ConfigMapChecksum(configMapData)
 	}
 
+	initContainers := buildGitCloneInitContainers(instance, gitCloneImage)
+
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.Name,
@@ -52,6 +58,7 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 				Spec: corev1.PodSpec{
 					ServiceAccountName: instance.Name,
 					ImagePullSecrets:   buildImagePullSecrets(instance),
+					InitContainers:     initContainers,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsUser:  ptr.To(int64(1000)),
 						RunAsGroup: ptr.To(int64(1000)),
@@ -112,6 +119,131 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 	}
 
 	return dep
+}
+
+// buildGitCloneInitContainers returns init containers for git-cloning the
+// workspace repository. Returns nil if no git repo is configured.
+//
+// The init container runs with ReadOnlyRootFilesystem: true for security
+// hardening. A writable /tmp emptyDir is mounted so git has a scratch area
+// for index.lock files, credential helpers, and pack negotiation. HOME is
+// set to /tmp so git config writes (e.g., safe.directory) land there.
+// GIT_CONFIG_NOSYSTEM=1 prevents reading /etc/gitconfig which may not exist.
+func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitCloneImage string) []corev1.Container {
+	if !NeedsGitClone(instance) {
+		return nil
+	}
+
+	if gitCloneImage == "" {
+		gitCloneImage = DefaultGitCloneImage
+	}
+
+	ws := instance.Spec.Workspace
+	secretKey := GitSecretKey(instance)
+	script := buildGitCloneScript(ws.GitRepo, ws.GitRef, NeedsGitSecret(instance), secretKey)
+
+	mounts := []corev1.VolumeMount{
+		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
+		{Name: GitTmpVolumeName, MountPath: GitTmpMountPath},
+	}
+	if NeedsGitSecret(instance) {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      GitSecretVolumeName,
+			MountPath: GitSecretMountPath,
+			ReadOnly:  true,
+		})
+	}
+
+	return []corev1.Container{
+		{
+			Name:    "git-clone",
+			Image:   gitCloneImage,
+			Command: []string{"sh", "-c"},
+			Args:    []string{script},
+			Env: []corev1.EnvVar{
+				{Name: "HOME", Value: GitTmpMountPath},
+				{Name: "GIT_CONFIG_NOSYSTEM", Value: "1"},
+			},
+			VolumeMounts: mounts,
+			SecurityContext: &corev1.SecurityContext{
+				RunAsUser:                ptr.To(int64(1000)),
+				RunAsGroup:               ptr.To(int64(1000)),
+				AllowPrivilegeEscalation: ptr.To(false),
+				ReadOnlyRootFilesystem:   ptr.To(true),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+			},
+		},
+	}
+}
+
+// buildGitCloneScript generates the shell script for the git-clone init
+// container. It handles both fresh clones and incremental updates when the
+// PVC already contains a previous checkout. User-supplied values (gitRepo,
+// gitRef) are single-quoted to prevent shell injection. CRD validation
+// patterns provide an additional layer of defense.
+//
+// When a git secret is configured, HTTPS token authentication is used:
+// the token is read from the mounted secret, injected into the clone URL
+// via POSIX parameter expansion, and stripped from the persisted remote
+// after clone/fetch to avoid leaking credentials on the workspace PVC.
+func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey string) string {
+	quotedRepo := shellQuote(gitRepo)
+	quotedWs := shellQuote(WorkspaceMountPath)
+
+	var parts []string
+
+	// Fail fast on any command error. The update path uses explicit fallback
+	// blocks to avoid triggering set -e when git fetch/pull fails on a
+	// previously cloned workspace.
+	parts = append(parts, "set -e")
+
+	cloneURL := quotedRepo
+
+	if hasSecret {
+		keyPath := path.Join(GitSecretMountPath, secretKey)
+		parts = append(parts,
+			"export GIT_TERMINAL_PROMPT=0",
+			fmt.Sprintf("TOKEN=$(cat '%s')", keyPath),
+			"REPO="+quotedRepo,
+			`AUTH_URL="${REPO%%://*}://x-access-token:${TOKEN}@${REPO#*://}"`,
+		)
+		cloneURL = `"$AUTH_URL"`
+	}
+
+	// Fresh clone vs incremental update.
+	parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", quotedWs))
+	if gitRef != "" {
+		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), cloneURL, quotedWs))
+	} else {
+		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, quotedWs))
+	}
+	if hasSecret {
+		parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
+		parts = append(parts, `  git remote set-url origin "$REPO"`)
+	}
+	parts = append(parts, "else")
+	parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
+	if hasSecret {
+		parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
+	}
+	if gitRef != "" {
+		quotedRef := shellQuote(gitRef)
+		parts = append(parts,
+			"  git fetch origin || { echo 'WARNING: git fetch failed, using existing checkout'; exit 0; }",
+			fmt.Sprintf("  git checkout %s", quotedRef),
+			fmt.Sprintf("  git pull origin %s || echo 'WARNING: git pull failed, using existing checkout'", quotedRef),
+		)
+	} else {
+		parts = append(parts, "  git pull || echo 'WARNING: git pull failed, using existing checkout'")
+	}
+	if hasSecret {
+		parts = append(parts, `  git remote set-url origin "$REPO"`)
+	}
+	parts = append(parts, "fi")
+
+	return strings.Join(parts, "\n")
 }
 
 // buildImagePullSecrets converts the list of pull secret names to

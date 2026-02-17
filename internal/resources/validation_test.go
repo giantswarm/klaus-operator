@@ -140,6 +140,74 @@ func TestValidateSpec_PluginTagDigest(t *testing.T) {
 	}
 }
 
+func TestValidateSpec_WorkspaceGitSecretWithoutRepo(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    klausv1alpha1.KlausInstanceSpec
+		wantErr string
+	}{
+		{
+			name: "gitSecretRef with gitRepo -- valid",
+			spec: klausv1alpha1.KlausInstanceSpec{
+				Owner: "user@example.com",
+				Workspace: &klausv1alpha1.WorkspaceConfig{
+					GitRepo: "https://github.com/example/repo.git",
+					GitSecretRef: &klausv1alpha1.GitSecretReference{
+						Name: "my-key",
+					},
+				},
+			},
+		},
+		{
+			name: "gitSecretRef without gitRepo -- invalid",
+			spec: klausv1alpha1.KlausInstanceSpec{
+				Owner: "user@example.com",
+				Workspace: &klausv1alpha1.WorkspaceConfig{
+					GitSecretRef: &klausv1alpha1.GitSecretReference{
+						Name: "my-key",
+					},
+				},
+			},
+			wantErr: "gitSecretRef requires spec.workspace.gitRepo",
+		},
+		{
+			name: "gitRepo without gitSecretRef -- valid",
+			spec: klausv1alpha1.KlausInstanceSpec{
+				Owner: "user@example.com",
+				Workspace: &klausv1alpha1.WorkspaceConfig{
+					GitRepo: "https://github.com/example/repo.git",
+				},
+			},
+		},
+		{
+			name: "empty workspace -- valid",
+			spec: klausv1alpha1.KlausInstanceSpec{
+				Owner:     "user@example.com",
+				Workspace: &klausv1alpha1.WorkspaceConfig{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			instance := &klausv1alpha1.KlausInstance{Spec: tt.spec}
+			err := ValidateSpec(instance)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateSpec_PluginShortNameUniqueness(t *testing.T) {
 	tests := []struct {
 		name    string

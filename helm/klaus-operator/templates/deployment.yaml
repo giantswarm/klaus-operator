@@ -35,6 +35,7 @@ spec:
         - --health-probe-bind-address=:{{ .Values.probes.port }}
         - --mcp-bind-address=:{{ .Values.mcp.port }}
         - --klaus-image={{ .Values.klausImage }}
+        - --git-clone-image={{ .Values.gitCloneImage }}
         - --anthropic-key-secret={{ .Values.anthropicKeySecret.name }}
         {{- if .Values.anthropicKeySecret.namespace }}
         - --anthropic-key-namespace={{ .Values.anthropicKeySecret.namespace }}

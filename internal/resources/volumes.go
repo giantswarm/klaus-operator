@@ -64,6 +64,32 @@ func BuildVolumes(instance *klausv1alpha1.KlausInstance, configMapName string) [
 		})
 	}
 
+	// Writable /tmp for the git-clone init container. Git needs a scratch area
+	// for index.lock, pack negotiation, and credential helpers when the init
+	// container runs with ReadOnlyRootFilesystem: true.
+	if NeedsGitClone(instance) {
+		volumes = append(volumes, corev1.Volume{
+			Name: GitTmpVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		})
+	}
+
+	// Git secret volume (HTTPS access token for private repos).
+	if NeedsGitSecret(instance) {
+		keyMode := int32(0400)
+		volumes = append(volumes, corev1.Volume{
+			Name: GitSecretVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  GitSecretName(instance),
+					DefaultMode: &keyMode,
+				},
+			},
+		})
+	}
+
 	return volumes
 }
 
