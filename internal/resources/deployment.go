@@ -123,6 +123,12 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 
 // buildGitCloneInitContainers returns init containers for git-cloning the
 // workspace repository. Returns nil if no git repo is configured.
+//
+// The init container runs with ReadOnlyRootFilesystem: true for security
+// hardening. A writable /tmp emptyDir is mounted so git has a scratch area
+// for index.lock files, credential helpers, and pack negotiation. HOME is
+// set to /tmp so git config writes (e.g., safe.directory) land there.
+// GIT_CONFIG_NOSYSTEM=1 prevents reading /etc/gitconfig which may not exist.
 func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitCloneImage string) []corev1.Container {
 	if !NeedsGitClone(instance) {
 		return nil
@@ -138,6 +144,7 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 
 	mounts := []corev1.VolumeMount{
 		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
+		{Name: GitTmpVolumeName, MountPath: GitTmpMountPath},
 	}
 	if NeedsGitSecret(instance) {
 		mounts = append(mounts, corev1.VolumeMount{
@@ -149,10 +156,14 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 
 	return []corev1.Container{
 		{
-			Name:         "git-clone",
-			Image:        gitCloneImage,
-			Command:      []string{"sh", "-c"},
-			Args:         []string{script},
+			Name:    "git-clone",
+			Image:   gitCloneImage,
+			Command: []string{"sh", "-c"},
+			Args:    []string{script},
+			Env: []corev1.EnvVar{
+				{Name: "HOME", Value: GitTmpMountPath},
+				{Name: "GIT_CONFIG_NOSYSTEM", Value: "1"},
+			},
 			VolumeMounts: mounts,
 			SecurityContext: &corev1.SecurityContext{
 				RunAsUser:                ptr.To(int64(1000)),
@@ -179,11 +190,13 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 // after clone/fetch to avoid leaking credentials on the workspace PVC.
 func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey string) string {
 	quotedRepo := shellQuote(gitRepo)
+	quotedWs := shellQuote(WorkspaceMountPath)
 
 	var parts []string
 
-	// Fail fast on any command error. The || echo 'WARNING: ...' lines in
-	// the update path are structured to not trigger set -e.
+	// Fail fast on any command error. The update path uses explicit fallback
+	// blocks to avoid triggering set -e when git fetch/pull fails on a
+	// previously cloned workspace.
 	parts = append(parts, "set -e")
 
 	cloneURL := quotedRepo
@@ -200,25 +213,30 @@ func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey strin
 	}
 
 	// Fresh clone vs incremental update.
-	parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", WorkspaceMountPath))
+	parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", quotedWs))
 	if gitRef != "" {
-		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), cloneURL, WorkspaceMountPath))
+		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), cloneURL, quotedWs))
 	} else {
-		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, WorkspaceMountPath))
+		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, quotedWs))
 	}
 	if hasSecret {
-		parts = append(parts, fmt.Sprintf(`  cd %s && git remote set-url origin "$REPO"`, WorkspaceMountPath))
+		parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
+		parts = append(parts, `  git remote set-url origin "$REPO"`)
 	}
 	parts = append(parts, "else")
-	parts = append(parts, fmt.Sprintf("  cd %s", WorkspaceMountPath))
+	parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
 	if hasSecret {
 		parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
 	}
 	if gitRef != "" {
 		quotedRef := shellQuote(gitRef)
-		parts = append(parts, fmt.Sprintf("  git fetch origin && git checkout %s && git pull origin %s || echo 'WARNING: git update failed, using existing checkout'", quotedRef, quotedRef))
+		parts = append(parts,
+			"  git fetch origin || { echo 'WARNING: git fetch failed, using existing checkout'; exit 0; }",
+			fmt.Sprintf("  git checkout %s", quotedRef),
+			fmt.Sprintf("  git pull origin %s || echo 'WARNING: git pull failed, using existing checkout'", quotedRef),
+		)
 	} else {
-		parts = append(parts, "  git pull || echo 'WARNING: git update failed, using existing checkout'")
+		parts = append(parts, "  git pull || echo 'WARNING: git pull failed, using existing checkout'")
 	}
 	if hasSecret {
 		parts = append(parts, `  git remote set-url origin "$REPO"`)

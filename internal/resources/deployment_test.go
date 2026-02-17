@@ -249,13 +249,46 @@ func TestBuildDeployment_WithGitClone(t *testing.T) {
 
 	// Verify workspace volume mount on init container.
 	foundWorkspaceMount := false
+	foundTmpMount := false
 	for _, m := range initContainers[0].VolumeMounts {
 		if m.Name == WorkspaceVolumeName && m.MountPath == WorkspaceMountPath {
 			foundWorkspaceMount = true
 		}
+		if m.Name == GitTmpVolumeName && m.MountPath == GitTmpMountPath {
+			foundTmpMount = true
+		}
 	}
 	if !foundWorkspaceMount {
 		t.Error("expected workspace volume mount on git-clone init container")
+	}
+	if !foundTmpMount {
+		t.Error("expected /tmp volume mount on git-clone init container for writable scratch space")
+	}
+
+	// Verify git-tmp emptyDir volume exists.
+	foundTmpVolume := false
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == GitTmpVolumeName {
+			foundTmpVolume = true
+			if v.EmptyDir == nil {
+				t.Error("expected emptyDir volume source for git-tmp")
+			}
+		}
+	}
+	if !foundTmpVolume {
+		t.Error("expected git-tmp emptyDir volume")
+	}
+
+	// Verify HOME and GIT_CONFIG_NOSYSTEM env vars on init container.
+	envMap := make(map[string]string)
+	for _, e := range initContainers[0].Env {
+		envMap[e.Name] = e.Value
+	}
+	if envMap["HOME"] != GitTmpMountPath {
+		t.Errorf("HOME env = %q, want %q", envMap["HOME"], GitTmpMountPath)
+	}
+	if envMap["GIT_CONFIG_NOSYSTEM"] != "1" {
+		t.Errorf("GIT_CONFIG_NOSYSTEM env = %q, want %q", envMap["GIT_CONFIG_NOSYSTEM"], "1")
 	}
 
 	// Verify no git secret mount (no gitSecretRef).
@@ -275,6 +308,9 @@ func TestBuildDeployment_WithGitClone(t *testing.T) {
 	}
 	if *sec.AllowPrivilegeEscalation {
 		t.Error("init container should not allow privilege escalation")
+	}
+	if !*sec.ReadOnlyRootFilesystem {
+		t.Error("init container should have ReadOnlyRootFilesystem: true")
 	}
 }
 
@@ -403,6 +439,16 @@ func TestBuildGitCloneScript_WithRef(t *testing.T) {
 	if !strings.Contains(script, "git checkout 'main'") {
 		t.Error("expected git checkout 'main' (quoted) in update path")
 	}
+	// Verify fetch, checkout, and pull are separate lines (not a && chain).
+	if !strings.Contains(script, "git fetch origin || {") {
+		t.Error("expected git fetch with explicit fallback block")
+	}
+	if !strings.Contains(script, "git pull origin 'main' || echo") {
+		t.Error("expected git pull with warning fallback")
+	}
+	if strings.Contains(script, "git fetch origin && git checkout") {
+		t.Error("unexpected && chain; fetch/checkout/pull should be separate commands")
+	}
 	if strings.Contains(script, "GIT_SSH_COMMAND") {
 		t.Error("unexpected GIT_SSH_COMMAND")
 	}
@@ -438,6 +484,10 @@ func TestBuildGitCloneScript_WithSecret(t *testing.T) {
 	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
 		t.Error("expected credential cleanup after clone/fetch")
 	}
+	// Verify fetch, checkout, pull are separate commands (not && chain).
+	if !strings.Contains(script, "git fetch origin || {") {
+		t.Error("expected git fetch with explicit fallback block")
+	}
 	if strings.Contains(script, "GIT_SSH_COMMAND") {
 		t.Error("unexpected GIT_SSH_COMMAND; should use HTTPS token auth")
 	}
@@ -466,5 +516,9 @@ func TestBuildGitCloneScript_ValuesAreShellQuoted(t *testing.T) {
 	}
 	if !strings.Contains(script, "'main'") {
 		t.Error("expected gitRef to be single-quoted in clone script")
+	}
+	// WorkspaceMountPath is also quoted for consistency.
+	if !strings.Contains(script, shellQuote(WorkspaceMountPath)) {
+		t.Error("expected workspace mount path to be single-quoted in clone script")
 	}
 }

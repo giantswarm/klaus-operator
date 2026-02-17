@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git clone init container for workspace: when `workspace.gitRepo` is set, the operator prepends an init container that clones the repository into the workspace PVC before the main container starts. Supports incremental updates on restarts (#16).
 - `workspace.gitSecretRef` field on KlausInstance for private repository cloning via HTTPS access tokens (PAT or fine-grained token). The operator copies the referenced Secret (preserving its type) to the user namespace and injects the token into the clone URL (#16).
 - `--git-clone-image` CLI flag to configure the init container image for workspace git clones (defaults to `alpine/git:v2.47.2`).
+- `gitCloneImage` Helm chart value to configure the init container image via the operator deployment.
+- `HOME=/tmp` and `GIT_CONFIG_NOSYSTEM=1` environment variables on the git-clone init container, with a writable `/tmp` emptyDir volume for git scratch space when running with `ReadOnlyRootFilesystem: true`.
 - CRD validation patterns on `workspace.gitRepo`, `workspace.gitRef`, and `gitSecretRef.key` to reject shell metacharacters.
 - Spec validation: `workspace.gitSecretRef` now requires `workspace.gitRepo` to be set.
 - Kubernetes events for git credential copy and workspace clone configuration for improved observability.
@@ -54,7 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Git clone init container image pinned to `alpine/git:v2.47.2` instead of `:latest` for reproducible deployments; configurable via `--git-clone-image`.
-- Git clone shell script now single-quotes user-supplied `gitRepo` and `gitRef` values as defense-in-depth against shell injection.
+- Git clone shell script now single-quotes user-supplied `gitRepo`, `gitRef`, and workspace path values as defense-in-depth against shell injection.
+- Git clone update path now uses separate fetch/checkout/pull commands with explicit error handling instead of a single `&&` chain, improving readability and making failure behavior per-command.
 - Git clone update path now logs a warning instead of silently succeeding when `git pull` fails (`|| true` replaced with `|| echo WARNING`).
 - Git clone authentication changed from SSH (`GIT_SSH_COMMAND`) to HTTPS token-based auth via `x-access-token` URL injection; credentials are stripped from the persisted remote URL after clone/fetch.
 - Default git secret key changed from `ssh-privatekey` to `token` to reflect HTTPS token auth.

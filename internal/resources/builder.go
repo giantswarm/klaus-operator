@@ -51,6 +51,15 @@ const (
 	// GitSecretMountPath is where the git secret is mounted in the init container.
 	GitSecretMountPath = "/etc/git-secret"
 
+	// GitTmpVolumeName is the name of the emptyDir volume providing a writable
+	// /tmp for the git-clone init container. Required because the init container
+	// runs with ReadOnlyRootFilesystem and git may need to write temporary files
+	// (e.g., index.lock, credential helpers, pack negotiation).
+	GitTmpVolumeName = "git-tmp"
+
+	// GitTmpMountPath is where the writable tmp volume is mounted.
+	GitTmpMountPath = "/tmp"
+
 	// DefaultGitSecretKey is the default key in the git Secret data.
 	DefaultGitSecretKey = "token"
 
