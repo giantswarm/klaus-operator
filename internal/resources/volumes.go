@@ -64,6 +64,20 @@ func BuildVolumes(instance *klausv1alpha1.KlausInstance, configMapName string) [
 		})
 	}
 
+	// Git secret volume (SSH key or token for private repos).
+	if NeedsGitSecret(instance) {
+		keyMode := int32(0400)
+		volumes = append(volumes, corev1.Volume{
+			Name: GitSecretVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  GitSecretName(instance),
+					DefaultMode: &keyMode,
+				},
+			},
+		})
+	}
+
 	return volumes
 }
 

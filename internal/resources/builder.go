@@ -44,6 +44,20 @@ const (
 
 	// HookScriptsPath is the base path for hook scripts.
 	HookScriptsPath = "/etc/klaus/hooks"
+
+	// GitSecretVolumeName is the name of the git secret volume.
+	GitSecretVolumeName = "git-secret"
+
+	// GitSecretMountPath is where the git secret is mounted in the init container.
+	GitSecretMountPath = "/etc/git-secret"
+
+	// DefaultGitSecretKey is the default key in the git Secret data.
+	DefaultGitSecretKey = "ssh-privatekey"
+
+	// DefaultGitCloneImage is the default image for the git clone init container.
+	// Pinned to a specific version for reproducible deployments; override via
+	// the --git-clone-image flag.
+	DefaultGitCloneImage = "alpine/git:v2.47.2"
 )
 
 var sanitizeRegexp = regexp.MustCompile(`[^a-z0-9-]`)
@@ -102,6 +116,22 @@ func PVCName(instance *klausv1alpha1.KlausInstance) string {
 // SecretName returns the copied API key Secret name for an instance.
 func SecretName(instance *klausv1alpha1.KlausInstance) string {
 	return instance.Name + "-api-key"
+}
+
+// GitSecretName returns the copied git credential Secret name for an instance.
+func GitSecretName(instance *klausv1alpha1.KlausInstance) string {
+	return instance.Name + "-git-creds"
+}
+
+// GitSecretKey returns the Secret data key for the git credential, defaulting
+// to "ssh-privatekey" when unset.
+func GitSecretKey(instance *klausv1alpha1.KlausInstance) string {
+	if instance.Spec.Workspace != nil &&
+		instance.Spec.Workspace.GitSecretRef != nil &&
+		instance.Spec.Workspace.GitSecretRef.Key != "" {
+		return instance.Spec.Workspace.GitSecretRef.Key
+	}
+	return DefaultGitSecretKey
 }
 
 // ShortPluginName extracts the last path segment from an OCI repository.
@@ -165,6 +195,22 @@ func HasMCPConfig(instance *klausv1alpha1.KlausInstance) bool {
 // HasHooks returns true if hooks are configured.
 func HasHooks(instance *klausv1alpha1.KlausInstance) bool {
 	return len(instance.Spec.Hooks) > 0
+}
+
+// NeedsGitClone returns true if the workspace has a git repo to clone.
+func NeedsGitClone(instance *klausv1alpha1.KlausInstance) bool {
+	return instance.Spec.Workspace != nil && instance.Spec.Workspace.GitRepo != ""
+}
+
+// NeedsGitSecret returns true if a git secret reference is configured for the workspace.
+func NeedsGitSecret(instance *klausv1alpha1.KlausInstance) bool {
+	return instance.Spec.Workspace != nil && instance.Spec.Workspace.GitSecretRef != nil
+}
+
+// shellQuote wraps a value in POSIX single quotes for safe shell
+// interpolation. Single quotes inside the value are properly escaped.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func sanitizeLabelValue(s string) string {

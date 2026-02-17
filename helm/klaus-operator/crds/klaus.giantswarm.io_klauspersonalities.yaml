@@ -1,0 +1,527 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: klauspersonalities.klaus.giantswarm.io
+spec:
+  group: klaus.giantswarm.io
+  names:
+    kind: KlausPersonality
+    listKind: KlausPersonalityList
+    plural: klauspersonalities
+    shortNames:
+    - kp
+    singular: klauspersonality
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.description
+      name: Description
+      type: string
+    - jsonPath: .status.instanceCount
+      name: Instances
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          KlausPersonality defines a reusable template for KlausInstance configuration.
+          Instances can reference a personality via personalityRef to inherit its
+          defaults. Instance-specific fields override personality defaults according to
+          defined merge semantics.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              KlausPersonalitySpec defines a reusable template configuration that can be
+              referenced by KlausInstance resources via personalityRef. The spec covers
+              the same configuration surface as KlausInstanceSpec, minus fields that are
+              inherently per-instance (owner, personalityRef, workspace, muster,
+              imagePullSecrets).
+            properties:
+              addDirs:
+                description: AddDirs specifies default additional directories to load.
+                items:
+                  type: string
+                type: array
+              agentFiles:
+                additionalProperties:
+                  description: AgentFileConfig defines an inline markdown-format subagent
+                    definition.
+                  properties:
+                    content:
+                      description: Content is the raw markdown content of the agent
+                        file.
+                      type: string
+                  required:
+                  - content
+                  type: object
+                description: AgentFiles defines default inline markdown-format subagent
+                  definitions.
+                type: object
+              claude:
+                description: Claude contains all Claude Code agent configuration defaults.
+                properties:
+                  activeAgent:
+                    description: ActiveAgent selects the top-level agent.
+                    type: string
+                  agents:
+                    additionalProperties:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    description: Agents defines JSON-format subagent configurations.
+                    type: object
+                  allowedTools:
+                    description: AllowedTools restricts which tools can be used.
+                    items:
+                      type: string
+                    type: array
+                  appendSystemPrompt:
+                    description: AppendSystemPrompt appends text to the default system
+                      prompt.
+                    type: string
+                  disallowedTools:
+                    description: DisallowedTools prevents specific tools from being
+                      used.
+                    items:
+                      type: string
+                    type: array
+                  effort:
+                    description: Effort controls thinking effort level (low, medium,
+                      high).
+                    enum:
+                    - low
+                    - medium
+                    - high
+                    type: string
+                  fallbackModel:
+                    description: FallbackModel specifies a fallback model if the primary
+                      is unavailable.
+                    type: string
+                  includePartialMessages:
+                    description: IncludePartialMessages enables streaming partial
+                      messages.
+                    type: boolean
+                  jsonSchema:
+                    description: JSONSchema defines structured output schema.
+                    type: string
+                  maxBudgetUSD:
+                    description: MaxBudgetUSD sets the maximum spend per session in
+                      USD.
+                    type: number
+                  maxMcpOutputTokens:
+                    description: MaxMCPOutputTokens sets MAX_MCP_OUTPUT_TOKENS.
+                    type: integer
+                  maxTurns:
+                    description: MaxTurns limits the number of agentic turns. 0 means
+                      unlimited.
+                    type: integer
+                  mcpServerSecrets:
+                    description: MCPServerSecrets defines secret references for ${VAR}
+                      expansion in MCP config.
+                    items:
+                      description: MCPServerSecret defines a Kubernetes Secret reference
+                        for MCP server credential injection.
+                      properties:
+                        env:
+                          additionalProperties:
+                            type: string
+                          description: Env maps environment variable names to Secret
+                            keys.
+                          type: object
+                        secretName:
+                          description: SecretName is the name of the Kubernetes Secret.
+                          type: string
+                      required:
+                      - env
+                      - secretName
+                      type: object
+                    type: array
+                  mcpServers:
+                    additionalProperties:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    description: MCPServers defines inline MCP server configuration
+                      (free-form map rendered to .mcp.json).
+                    type: object
+                  mcpTimeout:
+                    description: MCPTimeout sets the MCP_TIMEOUT env var (milliseconds).
+                    type: integer
+                  model:
+                    description: Model specifies the Claude model to use.
+                    type: string
+                  noSessionPersistence:
+                    description: NoSessionPersistence disables session persistence.
+                    type: boolean
+                  permissionMode:
+                    default: bypassPermissions
+                    description: PermissionMode controls tool permission handling.
+                    enum:
+                    - bypassPermissions
+                    - default
+                    type: string
+                  persistentMode:
+                    description: PersistentMode enables bidirectional stream-json
+                      mode instead of single-shot.
+                    type: boolean
+                  settingSources:
+                    description: SettingSources controls which settings sources are
+                      loaded.
+                    type: string
+                  settingsFile:
+                    description: SettingsFile path to a custom settings file. Mutually
+                      exclusive with Hooks.
+                    type: string
+                  strictMcpConfig:
+                    default: true
+                    description: StrictMCPConfig prevents loading MCP configs from
+                      user/project/local sources.
+                    type: boolean
+                  systemPrompt:
+                    description: SystemPrompt overrides the default system prompt.
+                    type: string
+                  tools:
+                    description: Tools specifies tools to enable.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              description:
+                description: Description is a human-readable description of this personality.
+                type: string
+              hookScripts:
+                additionalProperties:
+                  type: string
+                description: HookScripts defines default executable scripts mounted
+                  at /etc/klaus/hooks/.
+                type: object
+              hooks:
+                additionalProperties:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                description: |-
+                  Hooks defines default lifecycle hooks rendered to settings.json.
+                  Mutually exclusive with Claude.SettingsFile.
+                type: object
+              image:
+                description: |-
+                  Image is the container image for instances using this personality.
+                  When set, overrides the operator's default klausImage.
+                  This should be a composite image containing both the language toolchain
+                  and the Klaus agent.
+                type: string
+              loadAdditionalDirsMemory:
+                description: LoadAdditionalDirsMemory enables CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD.
+                type: boolean
+              mcpServers:
+                description: MCPServers references shared KlausMCPServer CRDs by name.
+                items:
+                  description: |-
+                    MCPServerReference references a KlausMCPServer CRD by name.
+                    Merge semantics: if a referenced KlausMCPServer has the same name as an
+                    inline entry in claude.mcpServers, the resolved KlausMCPServer config takes
+                    precedence. An informational event is emitted when this override occurs.
+                  properties:
+                    name:
+                      description: Name is the name of the KlausMCPServer resource.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              pluginDirs:
+                description: PluginDirs specifies default additional plugin directory
+                  paths.
+                items:
+                  type: string
+                type: array
+              plugins:
+                description: Plugins defines default OCI image references rendered
+                  as Kubernetes image volumes.
+                items:
+                  description: PluginReference defines an OCI image reference for
+                    a Klaus plugin.
+                  properties:
+                    digest:
+                      description: Digest is the image digest (sha256:...). Mutually
+                        exclusive with Tag.
+                      type: string
+                    repository:
+                      description: Repository is the OCI image repository.
+                      type: string
+                    tag:
+                      description: Tag is the image tag. Mutually exclusive with Digest.
+                      type: string
+                  required:
+                  - repository
+                  type: object
+                  x-kubernetes-validations:
+                  - message: tag and digest are mutually exclusive
+                    rule: '!(has(self.tag) && has(self.digest))'
+                  - message: must specify either tag or digest
+                    rule: has(self.tag) || has(self.digest)
+                type: array
+              resources:
+                description: Resources specifies default compute resource requirements
+                  for instance pods.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              skills:
+                additionalProperties:
+                  description: SkillConfig defines an inline skill rendered as SKILL.md
+                    with YAML frontmatter.
+                  properties:
+                    agent:
+                      description: Agent assigns this skill to a specific agent.
+                      type: string
+                    allowedTools:
+                      description: AllowedTools restricts which tools this skill can
+                        use.
+                      items:
+                        type: string
+                      type: array
+                    argumentHint:
+                      description: ArgumentHint provides input hints for the skill.
+                      type: string
+                    content:
+                      description: Content is the body text of the SKILL.md file.
+                      type: string
+                    context:
+                      description: Context provides additional context configuration.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    description:
+                      description: Description is the skill description in frontmatter.
+                      type: string
+                    disableModelInvocation:
+                      description: DisableModelInvocation prevents the model from
+                        invoking this skill.
+                      type: boolean
+                    model:
+                      description: Model overrides the model for this skill.
+                      type: string
+                    userInvocable:
+                      description: UserInvocable allows users to invoke this skill
+                        via slash commands.
+                      type: boolean
+                  required:
+                  - content
+                  type: object
+                description: Skills defines default inline skill configurations rendered
+                  as SKILL.md files.
+                type: object
+              telemetry:
+                description: Telemetry configures default OpenTelemetry and Prometheus
+                  metrics settings.
+                properties:
+                  enabled:
+                    description: Enabled enables telemetry collection.
+                    type: boolean
+                  includeAccountUuid:
+                    description: IncludeAccountUUID includes account UUID in telemetry.
+                    type: boolean
+                  includeSessionId:
+                    description: IncludeSessionID includes session ID in telemetry.
+                    type: boolean
+                  includeVersion:
+                    description: IncludeVersion includes version in telemetry.
+                    type: boolean
+                  logToolDetails:
+                    description: LogToolDetails enables logging of tool details.
+                    type: boolean
+                  logUserPrompts:
+                    description: LogUserPrompts enables logging of user prompts.
+                    type: boolean
+                  logsExportIntervalMs:
+                    description: LogsExportIntervalMs sets the logs export interval
+                      in milliseconds.
+                    type: integer
+                  logsExporter:
+                    description: LogsExporter specifies the logs exporter (e.g. "otlp").
+                    type: string
+                  metricExportIntervalMs:
+                    description: MetricExportIntervalMs sets the metric export interval
+                      in milliseconds.
+                    type: integer
+                  metricsExporter:
+                    description: MetricsExporter specifies the metrics exporter (e.g.
+                      "otlp").
+                    type: string
+                  otlp:
+                    description: OTLP contains OTLP exporter configuration.
+                    properties:
+                      endpoint:
+                        description: Endpoint is the OTLP endpoint URL.
+                        type: string
+                      headers:
+                        description: Headers are additional OTLP headers.
+                        type: string
+                      protocol:
+                        description: Protocol is the OTLP protocol (e.g. "grpc", "http/protobuf").
+                        type: string
+                    type: object
+                  resourceAttributes:
+                    description: ResourceAttributes sets OTEL_RESOURCE_ATTRIBUTES.
+                    type: string
+                type: object
+            type: object
+          status:
+            description: KlausPersonalityStatus defines the observed state of a KlausPersonality.
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the personality's state.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              instanceCount:
+                description: InstanceCount is the number of KlausInstance resources
+                  referencing this personality.
+                type: integer
+              mcpServerCount:
+                description: MCPServerCount is the number of MCP servers referenced
+                  by this personality.
+                type: integer
+              observedGeneration:
+                description: ObservedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
+              pluginCount:
+                description: PluginCount is the number of plugins defined in this
+                  personality.
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

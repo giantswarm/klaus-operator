@@ -16,6 +16,7 @@ import (
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/controller"
 	"github.com/giantswarm/klaus-operator/internal/mcp"
+	"github.com/giantswarm/klaus-operator/internal/resources"
 	"github.com/giantswarm/klaus-operator/pkg/project"
 )
 
@@ -36,6 +37,7 @@ func main() {
 		mcpAddr              string
 		enableLeaderElection bool
 		klausImage           string
+		gitCloneImage        string
 		anthropicKeySecret   string
 		anthropicKeyNs       string
 	)
@@ -45,6 +47,7 @@ func main() {
 	flag.StringVar(&mcpAddr, "mcp-bind-address", ":9090", "The address the MCP server binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for controller manager.")
 	flag.StringVar(&klausImage, "klaus-image", "gsoci.azurecr.io/giantswarm/klaus:latest", "The Klaus container image to use for instances.")
+	flag.StringVar(&gitCloneImage, "git-clone-image", resources.DefaultGitCloneImage, "The git clone image for workspace init containers.")
 	flag.StringVar(&anthropicKeySecret, "anthropic-key-secret", "anthropic-api-key", "Name of the Secret containing the Anthropic API key.")
 	flag.StringVar(&anthropicKeyNs, "anthropic-key-namespace", "", "Namespace of the Anthropic API key Secret (defaults to operator namespace).")
 
@@ -91,6 +94,7 @@ func main() {
 		Scheme:             mgr.GetScheme(),
 		Recorder:           mgr.GetEventRecorderFor("klausinstance-controller"),
 		KlausImage:         klausImage,
+		GitCloneImage:      gitCloneImage,
 		AnthropicKeySecret: anthropicKeySecret,
 		AnthropicKeyNs:     anthropicKeyNs,
 		OperatorNamespace:  operatorNamespace,

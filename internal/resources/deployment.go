@@ -1,6 +1,9 @@
 package resources
 
 import (
+	"fmt"
+	"path"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,7 +15,7 @@ import (
 
 // BuildDeployment creates the Deployment for a KlausInstance, mirroring the
 // standalone Helm chart's deployment.yaml rendering.
-func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImage string, configMapData map[string]string) *appsv1.Deployment {
+func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImage, gitCloneImage string, configMapData map[string]string) *appsv1.Deployment {
 	labels := InstanceLabels(instance)
 	cmName := ConfigMapName(instance)
 	secName := SecretName(instance)
@@ -33,6 +36,8 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 		podAnnotations["checksum/config"] = ConfigMapChecksum(configMapData)
 	}
 
+	initContainers := buildGitCloneInitContainers(instance, gitCloneImage)
+
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.Name,
@@ -52,6 +57,7 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 				Spec: corev1.PodSpec{
 					ServiceAccountName: instance.Name,
 					ImagePullSecrets:   buildImagePullSecrets(instance),
+					InitContainers:     initContainers,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsUser:  ptr.To(int64(1000)),
 						RunAsGroup: ptr.To(int64(1000)),
@@ -112,6 +118,92 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 	}
 
 	return dep
+}
+
+// buildGitCloneInitContainers returns init containers for git-cloning the
+// workspace repository. Returns nil if no git repo is configured.
+func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitCloneImage string) []corev1.Container {
+	if !NeedsGitClone(instance) {
+		return nil
+	}
+
+	if gitCloneImage == "" {
+		gitCloneImage = DefaultGitCloneImage
+	}
+
+	ws := instance.Spec.Workspace
+	secretKey := GitSecretKey(instance)
+	script := buildGitCloneScript(ws.GitRepo, ws.GitRef, NeedsGitSecret(instance), secretKey)
+
+	mounts := []corev1.VolumeMount{
+		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
+	}
+	if NeedsGitSecret(instance) {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      GitSecretVolumeName,
+			MountPath: GitSecretMountPath,
+			ReadOnly:  true,
+		})
+	}
+
+	return []corev1.Container{
+		{
+			Name:         "git-clone",
+			Image:        gitCloneImage,
+			Command:      []string{"sh", "-c"},
+			Args:         []string{script},
+			VolumeMounts: mounts,
+			SecurityContext: &corev1.SecurityContext{
+				RunAsUser:                ptr.To(int64(1000)),
+				RunAsGroup:               ptr.To(int64(1000)),
+				AllowPrivilegeEscalation: ptr.To(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"ALL"},
+				},
+			},
+		},
+	}
+}
+
+// buildGitCloneScript generates the shell script for the git-clone init
+// container. It handles both fresh clones and incremental updates when the
+// PVC already contains a previous checkout. User-supplied values (gitRepo,
+// gitRef) are single-quoted to prevent shell injection. CRD validation
+// patterns provide an additional layer of defense.
+func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey string) string {
+	var sshSetup string
+	if hasSecret {
+		keyPath := path.Join(GitSecretMountPath, secretKey)
+		sshSetup = fmt.Sprintf(
+			`export GIT_SSH_COMMAND='ssh -i %s -o StrictHostKeyChecking=accept-new'`+"\n",
+			keyPath,
+		)
+	}
+
+	quotedRepo := shellQuote(gitRepo)
+
+	if gitRef != "" {
+		quotedRef := shellQuote(gitRef)
+		return fmt.Sprintf(`%sif [ ! -d %s/.git ]; then
+  git clone --branch %s %s %s
+else
+  cd %s && git fetch origin && git checkout %s && git pull origin %s || echo 'WARNING: git update failed, using existing checkout'
+fi`,
+			sshSetup,
+			WorkspaceMountPath, quotedRef, quotedRepo, WorkspaceMountPath,
+			WorkspaceMountPath, quotedRef, quotedRef,
+		)
+	}
+
+	return fmt.Sprintf(`%sif [ ! -d %s/.git ]; then
+  git clone %s %s
+else
+  cd %s && git pull || echo 'WARNING: git update failed, using existing checkout'
+fi`,
+		sshSetup,
+		WorkspaceMountPath, quotedRepo, WorkspaceMountPath,
+		WorkspaceMountPath,
+	)
 }
 
 // buildImagePullSecrets converts the list of pull secret names to

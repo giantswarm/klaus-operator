@@ -306,12 +306,30 @@ type WorkspaceConfig struct {
 	Size *resource.Quantity `json:"size,omitempty"`
 
 	// GitRepo is a git repository URL to clone into the workspace.
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9@._:/%+~-]+$`
 	// +optional
 	GitRepo string `json:"gitRepo,omitempty"`
 
 	// GitRef is the git ref to checkout.
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9._/^~-]+$`
 	// +optional
 	GitRef string `json:"gitRef,omitempty"`
+
+	// GitSecretRef references a Secret with git credentials for cloning private repos.
+	// The operator copies the Secret to the user namespace and mounts it in the init container.
+	// +optional
+	GitSecretRef *GitSecretReference `json:"gitSecretRef,omitempty"`
+}
+
+// GitSecretReference references a Kubernetes Secret containing git credentials.
+type GitSecretReference struct {
+	// Name is the name of the Kubernetes Secret in the operator namespace.
+	Name string `json:"name"`
+
+	// Key is the key in the Secret data. Defaults to "ssh-privatekey".
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9._-]+$`
+	// +optional
+	Key string `json:"key,omitempty"`
 }
 
 // TelemetryConfig configures OpenTelemetry and metrics for the instance.
