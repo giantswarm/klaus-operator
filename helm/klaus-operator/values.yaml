@@ -13,7 +13,7 @@ image:
 klausImage: gsoci.azurecr.io/giantswarm/klaus:latest
 
 # Git clone init container image for workspace population.
-gitCloneImage: alpine/git:v2.47.2
+gitCloneImage: alpine/git:v2.52.0
 
 # Number of replicas (should be 1 with leader election, or 1 without).
 replicaCount: 1
