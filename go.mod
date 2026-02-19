@@ -2,6 +2,8 @@ module github.com/giantswarm/klaus-operator
 
 go 1.25.0
 
+toolchain go1.26.0
+
 require (
 	github.com/mark3labs/mcp-go v0.44.0
 	k8s.io/api v0.35.1
