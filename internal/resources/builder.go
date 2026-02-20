@@ -42,6 +42,9 @@ const (
 	// PluginBasePath is the base path for OCI plugin mounts.
 	PluginBasePath = "/var/lib/klaus/plugins"
 
+	// SoulMountPath is the mount path for the personality SOUL.md file.
+	SoulMountPath = "/etc/klaus/SOUL.md"
+
 	// HookScriptsPath is the base path for hook scripts.
 	HookScriptsPath = "/etc/klaus/hooks"
 

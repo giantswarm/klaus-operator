@@ -100,7 +100,7 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 					"inline-server": {},
 				},
 			},
-			PersonalityRef: &klausv1alpha1.PersonalityReference{Name: "my-personality"},
+			Personality: "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest",
 		},
 	}
 
@@ -118,8 +118,8 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 	if instance.Status.Mode != klausv1alpha1.InstanceModePersistent {
 		t.Errorf("Mode = %q, want %q", instance.Status.Mode, klausv1alpha1.InstanceModePersistent)
 	}
-	if instance.Status.Personality != "my-personality" {
-		t.Errorf("Personality = %q, want %q", instance.Status.Personality, "my-personality")
+	if instance.Status.Personality != "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest" {
+		t.Errorf("Personality = %q, want OCI ref", instance.Status.Personality)
 	}
 	if instance.Status.Toolchain != "" {
 		t.Errorf("Toolchain = %q, want empty (default image)", instance.Status.Toolchain)

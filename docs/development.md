@@ -102,6 +102,6 @@ The operator itself runs an MCP server registered in muster:
 
 ### Related Issues
 
-- #3 -- KlausPersonality CRD (instance templating via `personalityRef`)
 - #5 -- KlausMCPServer CRD (shared MCP server config with Secret injection)
 - #6 -- OCI artifact format for plugins (moved to klausctl)
+- #20 -- OCI-based personalities (replaces KlausPersonality CRD)

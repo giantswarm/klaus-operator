@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
+	"github.com/giantswarm/klaus-operator/internal/oci"
 	"github.com/giantswarm/klaus-operator/internal/resources"
 )
 
@@ -48,6 +49,7 @@ type KlausInstanceReconciler struct {
 	AnthropicKeySecret string
 	AnthropicKeyNs     string
 	OperatorNamespace  string
+	OCIClient          *oci.Client
 }
 
 // +kubebuilder:rbac:groups=klaus.giantswarm.io,resources=klausinstances,verbs=get;list;watch;create;update;patch;delete
@@ -96,10 +98,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Resolve personalityRef and merge personality defaults into instance spec.
-	// We work on a deep copy so the original object is not mutated in the cache.
+	// Resolve OCI personality and merge its defaults into a deep copy of the
+	// instance spec. We work on a deep copy so the informer cache is not mutated.
 	merged := instance.DeepCopy()
-	if err := r.resolvePersonality(ctx, merged); err != nil {
+	soulContent, err := r.resolveOCIPersonality(ctx, merged)
+	if err != nil {
 		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
 	}
 
@@ -159,7 +162,7 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. Create/update ConfigMap.
-	cm, err := resources.BuildConfigMap(merged, namespace)
+	cm, err := resources.BuildConfigMap(merged, namespace, soulContent)
 	if err != nil {
 		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "BuildError", err.Error())
 		return r.updateStatusError(ctx, &instance, "ConfigMapError", err)
@@ -490,11 +493,8 @@ func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.K
 		instance.Status.Mode = klausv1alpha1.InstanceModeSingleShot
 	}
 
-	if instance.Spec.PersonalityRef != nil {
-		instance.Status.Personality = instance.Spec.PersonalityRef.Name
-	} else {
-		instance.Status.Personality = ""
-	}
+	// Record the OCI personality reference in status.
+	instance.Status.Personality = instance.Spec.Personality
 
 	// Report the resolved image when it differs from the operator default.
 	if resolvedImage != r.KlausImage {
@@ -732,23 +732,23 @@ func (r *KlausInstanceReconciler) cleanupStaleMCPSecrets(ctx context.Context, ow
 	return nil
 }
 
-// resolvePersonality fetches the referenced KlausPersonality and merges its
-// spec into the instance spec. If no personalityRef is set, this is a no-op.
-func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
-	if instance.Spec.PersonalityRef == nil {
-		return nil
+// resolveOCIPersonality pulls the OCI personality artifact referenced by
+// instance.Spec.Personality and merges its defaults into the instance spec.
+// Returns the SOUL.md content if the personality provides one, or empty string.
+func (r *KlausInstanceReconciler) resolveOCIPersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) (string, error) {
+	if instance.Spec.Personality == "" {
+		return "", nil
 	}
 
-	var personality klausv1alpha1.KlausPersonality
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      instance.Spec.PersonalityRef.Name,
-		Namespace: instance.Namespace,
-	}, &personality); err != nil {
-		return fmt.Errorf("resolving personality %q: %w", instance.Spec.PersonalityRef.Name, err)
+	personality, err := r.OCIClient.PullPersonality(ctx, instance.Spec.Personality,
+		instance.Spec.ImagePullSecrets, instance.Namespace)
+	if err != nil {
+		return "", fmt.Errorf("pulling personality %q: %w", instance.Spec.Personality, err)
 	}
 
-	resources.MergePersonalityIntoInstance(&personality.Spec, &instance.Spec)
-	return nil
+	soul := personality.Soul
+	resources.MergeOCIPersonalityIntoInstance(personality, &instance.Spec)
+	return soul, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -756,9 +756,6 @@ func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instan
 // resources live in different namespaces (user namespaces) from the parent
 // KlausInstance (operator namespace). Owns() relies on owner references which
 // cannot cross namespace boundaries.
-//
-// We also watch KlausPersonality resources so that changes to a personality
-// trigger reconciliation of all instances that reference it.
 func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	managedByPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -792,9 +789,6 @@ func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(managedByPredicate)).
 		Watches(&corev1.ConfigMap{}, mapToInstance,
 			builder.WithPredicates(managedByPredicate)).
-		Watches(&klausv1alpha1.KlausPersonality{},
-			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingInstances(r.Client, r.OperatorNamespace)),
-		).
 		Watches(&klausv1alpha1.KlausMCPServer{},
 			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingMCPServerInstances(r.Client, r.OperatorNamespace)),
 		).

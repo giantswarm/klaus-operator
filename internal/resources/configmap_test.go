@@ -21,7 +21,7 @@ func TestBuildConfigMap_SystemPrompt(t *testing.T) {
 	}
 	instance.Name = "test-instance"
 
-	cm, err := BuildConfigMap(instance, "test-ns")
+	cm, err := BuildConfigMap(instance, "test-ns", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestBuildConfigMap_MCPConfig(t *testing.T) {
 	}
 	instance.Name = "test-instance"
 
-	cm, err := BuildConfigMap(instance, "test-ns")
+	cm, err := BuildConfigMap(instance, "test-ns", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildConfigMap_Skills(t *testing.T) {
 	}
 	instance.Name = "test-instance"
 
-	cm, err := BuildConfigMap(instance, "test-ns")
+	cm, err := BuildConfigMap(instance, "test-ns", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBuildConfigMap_Hooks(t *testing.T) {
 	}
 	instance.Name = "test-instance"
 
-	cm, err := BuildConfigMap(instance, "test-ns")
+	cm, err := BuildConfigMap(instance, "test-ns", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestBuildConfigMap_Empty(t *testing.T) {
 	}
 	instance.Name = "test-instance"
 
-	cm, err := BuildConfigMap(instance, "test-ns")
+	cm, err := BuildConfigMap(instance, "test-ns", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,4 +146,33 @@ func TestBuildConfigMap_Empty(t *testing.T) {
 	if len(cm.Data) != 0 {
 		t.Errorf("expected empty ConfigMap data for empty spec, got %d keys", len(cm.Data))
 	}
+}
+
+func TestBuildConfigMap_SoulContent(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner: "test@example.com",
+		},
+	}
+	instance.Name = "test-instance"
+
+	t.Run("soul content included when provided", func(t *testing.T) {
+		cm, err := BuildConfigMap(instance, "test-ns", "# SRE Soul\nYou are a platform expert.")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cm.Data["soul.md"] != "# SRE Soul\nYou are a platform expert." {
+			t.Errorf("expected soul.md in ConfigMap, got %q", cm.Data["soul.md"])
+		}
+	})
+
+	t.Run("soul content omitted when empty", func(t *testing.T) {
+		cm, err := BuildConfigMap(instance, "test-ns", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, exists := cm.Data["soul.md"]; exists {
+			t.Error("soul.md should not be in ConfigMap when empty")
+		}
+	})
 }

@@ -50,14 +50,11 @@ spec:
               required:
                 - owner
               properties:
-                personalityRef:
-                  description: Reference to a KlausPersonality template.
-                  type: object
-                  required:
-                    - name
-                  properties:
-                    name:
-                      type: string
+                personality:
+                  description: >-
+                    OCI reference to a personality artifact that provides default
+                    configuration for this instance.
+                  type: string
                 owner:
                   description: User identity (email) that owns this instance.
                   type: string

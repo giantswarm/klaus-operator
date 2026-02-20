@@ -25,6 +25,16 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 	volumes := BuildVolumes(instance, cmName)
 	volumeMounts := BuildVolumeMounts(instance)
 
+	// SOUL.md mount from personality ConfigMap entry.
+	if _, hasSoul := configMapData["soul.md"]; hasSoul {
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      ConfigVolumeName,
+			MountPath: SoulMountPath,
+			SubPath:   "soul.md",
+			ReadOnly:  true,
+		})
+	}
+
 	// Resource requirements (with defaults).
 	resources := corev1.ResourceRequirements{}
 	if instance.Spec.Resources != nil {

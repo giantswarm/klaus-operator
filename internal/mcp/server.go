@@ -41,7 +41,7 @@ func NewServer(c client.Client, operatorNamespace, addr string) *Server {
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
 		mcpgolang.WithString("model", mcpgolang.Description("Claude model to use (default: claude-sonnet-4-20250514)")),
 		mcpgolang.WithString("system_prompt", mcpgolang.Description("System prompt for the agent")),
-		mcpgolang.WithString("personality", mcpgolang.Description("Name of a KlausPersonality to use as template")),
+		mcpgolang.WithString("personality", mcpgolang.Description("OCI reference to a personality artifact (e.g. registry/repo:tag)")),
 	), s.handleCreateInstance)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(

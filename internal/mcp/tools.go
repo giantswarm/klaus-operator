@@ -55,9 +55,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 	}
 
 	if personality != "" {
-		instance.Spec.PersonalityRef = &klausv1alpha1.PersonalityReference{
-			Name: personality,
-		}
+		instance.Spec.Personality = personality
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
