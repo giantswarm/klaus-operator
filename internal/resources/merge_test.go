@@ -3,6 +3,8 @@ package resources
 import (
 	"testing"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/oci"
 )
@@ -100,7 +102,7 @@ func TestMergeOCIPersonalityIntoInstance_SystemPromptInherited(t *testing.T) {
 
 func TestMergeOCIPersonalityIntoInstance_PluginsMergedAndDeduplicated(t *testing.T) {
 	personality := &oci.PersonalitySpec{
-		Plugins: []oci.PersonalityPlugin{
+		Plugins: []klausoci.PluginReference{
 			{Repository: "gsoci.azurecr.io/giantswarm/gs-platform", Tag: "v1.0.0"},
 			{Repository: "gsoci.azurecr.io/giantswarm/security", Tag: "v0.3.0"},
 		},
@@ -161,7 +163,7 @@ func TestMergeOCIPersonalityIntoInstance_EmptyInstance(t *testing.T) {
 	personality := &oci.PersonalitySpec{
 		Image:        "gsoci.azurecr.io/giantswarm/klaus-go:latest",
 		SystemPrompt: "You are an expert.",
-		Plugins: []oci.PersonalityPlugin{
+		Plugins: []klausoci.PluginReference{
 			{Repository: "repo/plugin", Tag: "v1"},
 		},
 	}

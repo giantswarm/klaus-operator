@@ -3,6 +3,7 @@ module github.com/giantswarm/klaus-operator
 go 1.25.0
 
 require (
+	github.com/giantswarm/klaus-oci v0.0.2
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/opencontainers/image-spec v1.1.1
 	k8s.io/api v0.35.1

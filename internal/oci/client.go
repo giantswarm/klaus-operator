@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	klausoci "github.com/giantswarm/klaus-oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -20,8 +21,6 @@ import (
 )
 
 const (
-	mediaTypePersonalityContent = "application/vnd.giantswarm.klaus-personality.content.v1.tar+gzip"
-
 	// maxExtractFileSize guards against decompression bombs.
 	maxExtractFileSize = 10 << 20 // 10 MB
 
@@ -95,7 +94,7 @@ func (c *Client) PullPersonality(ctx context.Context, ref string, pullSecrets []
 	// Find the content layer by media type.
 	var contentLayer *ocispec.Descriptor
 	for i := range manifest.Layers {
-		if manifest.Layers[i].MediaType == mediaTypePersonalityContent {
+		if manifest.Layers[i].MediaType == klausoci.MediaTypePersonalityContent {
 			contentLayer = &manifest.Layers[i]
 			break
 		}

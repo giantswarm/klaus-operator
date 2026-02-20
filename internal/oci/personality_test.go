@@ -2,6 +2,8 @@ package oci
 
 import (
 	"testing"
+
+	klausoci "github.com/giantswarm/klaus-oci"
 )
 
 func TestParsePersonalitySpec(t *testing.T) {
@@ -32,7 +34,7 @@ soul: |
 				Image:              "gsoci.azurecr.io/giantswarm/klaus-go:latest",
 				SystemPrompt:       "You are an expert Go developer.",
 				AppendSystemPrompt: "Always follow Go conventions.",
-				Plugins: []PersonalityPlugin{
+				Plugins: []klausoci.PluginReference{
 					{Repository: "gsoci.azurecr.io/giantswarm/plugin-gopls", Tag: "v1.0.0"},
 					{Repository: "gsoci.azurecr.io/giantswarm/plugin-gotools", Digest: "sha256:abc123"},
 				},
