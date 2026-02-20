@@ -32,7 +32,7 @@ func TestExtractTarGz(t *testing.T) {
 	})
 
 	t.Run("handles dot-slash prefix in tar paths", func(t *testing.T) {
-		buf := buildTestTarGzWithPaths(t, map[string]string{
+		buf := buildTestTarGz(t, map[string]string{
 			"./personality.yaml": "description: prefixed\n",
 			"./SOUL.md":          "# Prefixed Soul\n",
 		})
@@ -93,6 +93,9 @@ func TestCleanTarPath(t *testing.T) {
 		{"/personality.yaml", "personality.yaml"},
 		{"./SOUL.md", "SOUL.md"},
 		{"SOUL.md", "SOUL.md"},
+		{".hidden", ".hidden"},
+		{"sub/personality.yaml", "sub/personality.yaml"},
+		{"./sub/personality.yaml", "sub/personality.yaml"},
 	}
 	for _, tt := range tests {
 		got := cleanTarPath(tt.input)
@@ -103,11 +106,6 @@ func TestCleanTarPath(t *testing.T) {
 }
 
 func buildTestTarGz(t *testing.T, files map[string]string) *bytes.Buffer {
-	t.Helper()
-	return buildTestTarGzWithPaths(t, files)
-}
-
-func buildTestTarGzWithPaths(t *testing.T, files map[string]string) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)

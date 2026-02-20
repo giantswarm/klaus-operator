@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
+	"strings"
 	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -22,9 +24,15 @@ const (
 
 	// maxExtractFileSize guards against decompression bombs.
 	maxExtractFileSize = 10 << 20 // 10 MB
+
+	// maxManifestSize limits the OCI manifest read to 1 MB.
+	maxManifestSize = 1 << 20
 )
 
 // Client is an OCI client with digest-based in-memory caching.
+// The cache is unbounded but safe for operators with a bounded set of
+// personality digests. Consider adding LRU eviction if the number of
+// distinct digests grows significantly.
 type Client struct {
 	k8s   client.Client
 	mu    sync.Mutex
@@ -65,7 +73,7 @@ func (c *Client) PullPersonality(ctx context.Context, ref string, pullSecrets []
 	c.mu.Lock()
 	if cached, ok := c.cache[cacheKey]; ok {
 		c.mu.Unlock()
-		return cached, nil
+		return cached.copy(), nil
 	}
 	c.mu.Unlock()
 
@@ -73,7 +81,7 @@ func (c *Client) PullPersonality(ctx context.Context, ref string, pullSecrets []
 	if err != nil {
 		return nil, fmt.Errorf("fetching manifest for %q: %w", ref, err)
 	}
-	manifestBytes, err := io.ReadAll(rc)
+	manifestBytes, err := io.ReadAll(io.LimitReader(rc, maxManifestSize))
 	rc.Close()
 	if err != nil {
 		return nil, fmt.Errorf("reading manifest for %q: %w", ref, err)
@@ -117,6 +125,7 @@ func (c *Client) PullPersonality(ctx context.Context, ref string, pullSecrets []
 		return nil, err
 	}
 
+	// SOUL.md file takes precedence over any "soul" field in personality.yaml.
 	if soul, ok := files["SOUL.md"]; ok {
 		spec.Soul = string(soul)
 	}
@@ -125,7 +134,7 @@ func (c *Client) PullPersonality(ctx context.Context, ref string, pullSecrets []
 	c.cache[cacheKey] = spec
 	c.mu.Unlock()
 
-	return spec, nil
+	return spec.copy(), nil
 }
 
 // extractTarGz reads a gzipped tar stream and returns the contents of the
@@ -182,31 +191,10 @@ func extractTarGz(r io.Reader, wanted ...string) (map[string][]byte, error) {
 	return result, nil
 }
 
-// cleanTarPath strips leading "./" and "/" from tar entry names so that
-// entries like "./personality.yaml" match the wanted name "personality.yaml".
+// cleanTarPath normalises tar entry names so that entries like
+// "./personality.yaml" or "/personality.yaml" match "personality.yaml".
 func cleanTarPath(name string) string {
-	for len(name) > 0 && (name[0] == '.' || name[0] == '/') {
-		name = name[1:]
-	}
-	return name
-}
-
-// Resolve returns the content digest for an OCI reference without pulling
-// the full artifact. Useful for cache invalidation checks.
-func (c *Client) Resolve(ctx context.Context, ref string, pullSecrets []string, secretNamespace string) (string, error) {
-	credFunc, err := c.buildCredentials(ctx, pullSecrets, secretNamespace)
-	if err != nil {
-		return "", err
-	}
-	repo, err := remoteRepo(ref, credFunc)
-	if err != nil {
-		return "", err
-	}
-	desc, err := repo.Resolve(ctx, repo.Reference.Reference)
-	if err != nil {
-		return "", fmt.Errorf("resolving %q: %w", ref, err)
-	}
-	return string(desc.Digest), nil
+	return strings.TrimPrefix(path.Clean(name), "/")
 }
 
 // remoteRepo opens an oras remote.Repository for the given OCI reference

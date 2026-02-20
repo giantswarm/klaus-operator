@@ -45,6 +45,17 @@ type PersonalityPlugin struct {
 	Digest string `yaml:"digest,omitempty" json:"digest,omitempty"`
 }
 
+// copy returns a deep copy of the PersonalitySpec, safe for caller mutation
+// without corrupting cached instances.
+func (s *PersonalitySpec) copy() *PersonalitySpec {
+	cp := *s
+	if len(s.Plugins) > 0 {
+		cp.Plugins = make([]PersonalityPlugin, len(s.Plugins))
+		copy(cp.Plugins, s.Plugins)
+	}
+	return &cp
+}
+
 // ParsePersonalitySpec parses personality.yaml bytes into a PersonalitySpec.
 func ParsePersonalitySpec(data []byte) (*PersonalitySpec, error) {
 	var spec PersonalitySpec
