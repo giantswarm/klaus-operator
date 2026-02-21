@@ -17,8 +17,8 @@ import (
 
 // BuildConfigMap creates the ConfigMap for a KlausInstance, containing all
 // configuration data: system prompts, MCP config, skills, agent files, hooks,
-// hook scripts, agents JSON, JSON schema, and personality SOUL.md.
-func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string, soulContent string) (*corev1.ConfigMap, error) {
+// hook scripts, agents JSON, and JSON schema.
+func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*corev1.ConfigMap, error) {
 	data := make(map[string]string)
 
 	// System prompt.
@@ -78,11 +78,6 @@ func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string, sou
 	// Hook scripts.
 	for _, name := range slices.Sorted(maps.Keys(instance.Spec.HookScripts)) {
 		data["hookscript-"+name] = instance.Spec.HookScripts[name]
-	}
-
-	// SOUL.md from personality artifact.
-	if soulContent != "" {
-		data["soul.md"] = soulContent
 	}
 
 	cm := &corev1.ConfigMap{

@@ -30,10 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Override events: informational events emitted when a KlausMCPServer overrides an inline `claude.mcpServers` entry with the same name.
 - `${VAR}` expansion documented in CRD field descriptions for `env` and `headers`.
 - Unit tests for MCP server config marshaling, merge semantics, and secret deduplication.
-- OCI-based personality support: `KlausInstance.spec.personality` accepts an OCI artifact reference (e.g., `gsoci.azurecr.io/giantswarm/klaus-personalities/sre:v1.0.0`) containing `personality.yaml` and `SOUL.md` (#20).
-- ORAS client (`internal/oci`) for pulling personality artifacts from OCI registries with digest-based caching and Kubernetes `imagePullSecrets` auth.
-- SOUL.md from personality artifacts mounted into the container via ConfigMap at `/etc/klaus/SOUL.md`.
-- Merge logic for OCI personalities: image (instance overrides personality), plugins (deduplicated by repository, instance version wins), system prompts (instance overrides personality).
+- OCI-based personality support: `KlausInstance.spec.personality` accepts an OCI artifact reference mounted as a Kubernetes image volume at `/var/lib/klaus/personality` (#20).
+- OCI artifact discovery MCP tools: `list_plugins`, `list_personalities`, `list_toolchains` for browsing available artifacts from the registry.
+- OCI version resolution: plugin, personality, and toolchain references with `:latest` or short names are resolved to concrete semver versions during reconciliation using `klaus-oci` shared library (#26).
+- `klaus-oci` shared library adopted for OCI reference helpers (`ShortName`, `PluginReference.Ref()`), registry constants, and version resolution.
 - Initial repository setup from giantswarm/template.
 - KlausInstance CRD (`klaus.giantswarm.io/v1alpha1`) with full configuration surface matching the standalone Helm chart.
 - KlausInstance controller reconciling to Namespace, Deployment, Service, PVC, ConfigMap, Secret, and MCPServer CRD.
@@ -100,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed `KlausPersonality` CRD, its controller, and Helm CRD manifests; replaced by OCI artifact references on `KlausInstance.spec.personality`.
+- Removed `internal/oci` ORAS-based pulling client; the operator no longer pulls OCI artifacts. Personality and plugin artifacts are delivered via Kubernetes image volumes (k8s 1.33+). Registry auth uses a single Docker config mounted into the operator container.
+- Removed SOUL.md ConfigMap handling; personality content is read by the instance container from the mounted image volume at runtime.
 - Removed unused exported `MarshalJSONMap` function.
 
 

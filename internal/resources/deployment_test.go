@@ -431,48 +431,6 @@ func TestBuildDeployment_NoGitCloneWithoutRepo(t *testing.T) {
 	}
 }
 
-func TestBuildDeployment_WithSoulMount(t *testing.T) {
-	instance := &klausv1alpha1.KlausInstance{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
-		Spec: klausv1alpha1.KlausInstanceSpec{
-			Owner: "user@example.com",
-		},
-	}
-
-	t.Run("soul.md in configmap adds volume mount", func(t *testing.T) {
-		configData := map[string]string{
-			"soul.md": "# SRE Soul\nYou are a platform expert.",
-		}
-		dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, configData)
-
-		container := dep.Spec.Template.Spec.Containers[0]
-		found := false
-		for _, m := range container.VolumeMounts {
-			if m.MountPath == SoulMountPath && m.SubPath == "soul.md" {
-				found = true
-				if !m.ReadOnly {
-					t.Error("SOUL.md mount should be read-only")
-				}
-				break
-			}
-		}
-		if !found {
-			t.Error("expected SOUL.md volume mount when soul.md in configmap data")
-		}
-	})
-
-	t.Run("no soul.md means no mount", func(t *testing.T) {
-		dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, nil)
-
-		container := dep.Spec.Template.Spec.Containers[0]
-		for _, m := range container.VolumeMounts {
-			if m.MountPath == SoulMountPath {
-				t.Error("expected no SOUL.md volume mount when no soul content")
-			}
-		}
-	})
-}
-
 func TestBuildGitCloneScript_WithRef(t *testing.T) {
 	script := buildGitCloneScript("https://github.com/example/project.git", "main", false, "")
 	if !strings.Contains(script, "--branch 'main'") {

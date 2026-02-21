@@ -25,8 +25,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
-	"github.com/giantswarm/klaus-operator/internal/oci"
 	"github.com/giantswarm/klaus-operator/internal/resources"
 )
 
@@ -49,7 +50,7 @@ type KlausInstanceReconciler struct {
 	AnthropicKeySecret string
 	AnthropicKeyNs     string
 	OperatorNamespace  string
-	OCIClient          *oci.Client
+	OCIClient          *klausoci.Client
 }
 
 // +kubebuilder:rbac:groups=klaus.giantswarm.io,resources=klausinstances,verbs=get;list;watch;create;update;patch;delete
@@ -98,12 +99,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Resolve OCI personality and merge its defaults into a deep copy of the
-	// instance spec. We work on a deep copy so the informer cache is not mutated.
+	// Deep copy the instance so the informer cache is not mutated.
 	merged := instance.DeepCopy()
-	soulContent, err := r.resolveOCIPersonality(ctx, merged)
-	if err != nil {
-		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
+
+	// Resolve OCI references (personality, plugins, toolchain image) to
+	// concrete versions so the pod spec uses pinned digests/tags.
+	if err := r.resolveOCIReferences(ctx, merged); err != nil {
+		return r.updateStatusError(ctx, &instance, "OCIResolutionError", err)
 	}
 
 	// Detect inline MCP server configs that will be overridden by resolved
@@ -162,7 +164,7 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. Create/update ConfigMap.
-	cm, err := resources.BuildConfigMap(merged, namespace, soulContent)
+	cm, err := resources.BuildConfigMap(merged, namespace)
 	if err != nil {
 		setCondition(&instance, ConditionConfigReady, metav1.ConditionFalse, "BuildError", err.Error())
 		return r.updateStatusError(ctx, &instance, "ConfigMapError", err)
@@ -732,23 +734,63 @@ func (r *KlausInstanceReconciler) cleanupStaleMCPSecrets(ctx context.Context, ow
 	return nil
 }
 
-// resolveOCIPersonality pulls the OCI personality artifact referenced by
-// instance.Spec.Personality and merges its defaults into the instance spec.
-// Returns the SOUL.md content if the personality provides one, or empty string.
-func (r *KlausInstanceReconciler) resolveOCIPersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) (string, error) {
-	if instance.Spec.Personality == "" {
-		return "", nil
+// resolveOCIReferences resolves short names and :latest tags on personality,
+// plugin, and toolchain image references to concrete semver versions. The
+// resolved references are written back to the deep-copied instance spec so
+// the pod spec uses pinned versions.
+func (r *KlausInstanceReconciler) resolveOCIReferences(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
+	if r.OCIClient == nil {
+		return nil
 	}
 
-	personality, err := r.OCIClient.PullPersonality(ctx, instance.Spec.Personality,
-		instance.Spec.ImagePullSecrets, instance.Namespace)
-	if err != nil {
-		return "", fmt.Errorf("pulling personality %q: %w", instance.Spec.Personality, err)
+	logger := log.FromContext(ctx)
+
+	// Resolve personality reference.
+	if instance.Spec.Personality != "" {
+		resolved, err := r.OCIClient.ResolvePersonalityRef(ctx, instance.Spec.Personality)
+		if err != nil {
+			return fmt.Errorf("resolving personality %q: %w", instance.Spec.Personality, err)
+		}
+		if resolved != instance.Spec.Personality {
+			logger.Info("resolved personality reference", "from", instance.Spec.Personality, "to", resolved)
+			instance.Spec.Personality = resolved
+		}
 	}
 
-	soul := personality.Soul
-	resources.MergeOCIPersonalityIntoInstance(personality, &instance.Spec)
-	return soul, nil
+	// Resolve toolchain image (the instance container image).
+	if instance.Spec.Image != "" {
+		resolved, err := r.OCIClient.ResolveToolchainRef(ctx, instance.Spec.Image)
+		if err != nil {
+			return fmt.Errorf("resolving toolchain image %q: %w", instance.Spec.Image, err)
+		}
+		if resolved != instance.Spec.Image {
+			logger.Info("resolved toolchain image", "from", instance.Spec.Image, "to", resolved)
+			instance.Spec.Image = resolved
+		}
+	}
+
+	// Resolve plugin references.
+	if len(instance.Spec.Plugins) > 0 {
+		ociPlugins := make([]klausoci.PluginReference, len(instance.Spec.Plugins))
+		for i, p := range instance.Spec.Plugins {
+			ociPlugins[i] = klausoci.PluginReference{
+				Repository: p.Repository,
+				Tag:        p.Tag,
+				Digest:     p.Digest,
+			}
+		}
+		resolved, err := r.OCIClient.ResolvePluginRefs(ctx, ociPlugins)
+		if err != nil {
+			return fmt.Errorf("resolving plugin references: %w", err)
+		}
+		for i, p := range resolved {
+			instance.Spec.Plugins[i].Repository = p.Repository
+			instance.Spec.Plugins[i].Tag = p.Tag
+			instance.Spec.Plugins[i].Digest = p.Digest
+		}
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

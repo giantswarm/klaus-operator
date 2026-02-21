@@ -39,6 +39,19 @@ func BuildVolumes(instance *klausv1alpha1.KlausInstance, configMapName string) [
 		})
 	}
 
+	// Personality volume (OCI image volume).
+	if instance.Spec.Personality != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name: PersonalityVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Image: &corev1.ImageVolumeSource{
+					Reference:  instance.Spec.Personality,
+					PullPolicy: corev1.PullIfNotPresent,
+				},
+			},
+		})
+	}
+
 	// Plugin volumes (OCI image volumes).
 	for _, plugin := range instance.Spec.Plugins {
 		volumes = append(volumes, corev1.Volume{
@@ -147,6 +160,15 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 				ReadOnly:  true,
 			})
 		}
+	}
+
+	// Personality mount (OCI image volume).
+	if instance.Spec.Personality != "" {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      PersonalityVolumeName,
+			MountPath: PersonalityMountPath,
+			ReadOnly:  true,
+		})
 	}
 
 	// Plugin mounts (OCI image volumes).

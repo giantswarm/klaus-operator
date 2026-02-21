@@ -4,27 +4,32 @@ import (
 	"context"
 	"log/slog"
 
+	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Server is the MCP server for the klaus-operator, exposing tools to
-// create, list, delete, get, and restart KlausInstance resources.
+// create, list, delete, get, and restart KlausInstance resources, and to
+// discover available OCI artifacts (plugins, personalities, toolchains).
 // It implements manager.Runnable so it can be managed by controller-runtime.
 type Server struct {
 	client            client.Client
 	operatorNamespace string
 	addr              string
+	ociClient         *klausoci.Client
 	httpServer        *server.StreamableHTTPServer
 }
 
-// NewServer creates a new MCP server backed by the given Kubernetes client.
-func NewServer(c client.Client, operatorNamespace, addr string) *Server {
+// NewServer creates a new MCP server backed by the given Kubernetes client
+// and OCI client for artifact discovery.
+func NewServer(c client.Client, operatorNamespace, addr string, ociClient *klausoci.Client) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
 		addr:              addr,
+		ociClient:         ociClient,
 	}
 
 	// Create the MCP server.
@@ -66,6 +71,21 @@ func NewServer(c client.Client, operatorNamespace, addr string) *Server {
 		mcpgolang.WithDescription("Restart a Klaus instance by cycling its Deployment"),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to restart")),
 	), s.handleRestartInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_plugins",
+		mcpgolang.WithDescription("List available Klaus plugins from the OCI registry with version and metadata"),
+	), s.handleListPlugins)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_personalities",
+		mcpgolang.WithDescription("List available Klaus personalities from the OCI registry with version and metadata"),
+	), s.handleListPersonalities)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_toolchains",
+		mcpgolang.WithDescription("List available Klaus toolchain images from the OCI registry with version and metadata"),
+	), s.handleListToolchains)
 
 	s.httpServer = server.NewStreamableHTTPServer(mcpSrv,
 		server.WithHTTPContextFunc(HTTPContextFuncAuth),
