@@ -55,3 +55,12 @@ jobs:
           git tag "$NEXT_VERSION"
           git push origin "$NEXT_VERSION"
           echo "Created and pushed tag $NEXT_VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_VERSION: ${{ steps.version.outputs.next_version }}
+        run: |
+          gh release create "$NEXT_VERSION" \
+            --title "$NEXT_VERSION" \
+            --generate-notes
