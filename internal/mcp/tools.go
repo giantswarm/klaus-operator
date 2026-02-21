@@ -283,18 +283,14 @@ func (s *Server) listArtifacts(ctx context.Context, registryBase, kind string) (
 
 	items := make([]map[string]any, 0, len(artifacts))
 	for _, a := range artifacts {
+		_, tag := klausoci.SplitNameTag(a.Reference)
 		item := map[string]any{
+			"name":       klausoci.ShortName(a.Repository),
 			"repository": a.Repository,
 			"reference":  a.Reference,
 		}
-		if a.Name != "" {
-			item["name"] = a.Name
-		}
-		if a.Version != "" {
-			item["version"] = a.Version
-		}
-		if a.Type != "" {
-			item["type"] = a.Type
+		if tag != "" {
+			item["version"] = tag
 		}
 		items = append(items, item)
 	}
