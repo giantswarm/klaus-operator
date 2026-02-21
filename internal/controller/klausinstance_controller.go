@@ -40,6 +40,13 @@ var mcpServerGVK = schema.GroupVersionKind{
 	Kind:    "MCPServer",
 }
 
+// OCIResolver resolves short names and :latest tags to concrete OCI references.
+type OCIResolver interface {
+	ResolvePersonalityRef(ctx context.Context, ref string) (string, error)
+	ResolveToolchainRef(ctx context.Context, ref string) (string, error)
+	ResolvePluginRefs(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error)
+}
+
 // KlausInstanceReconciler reconciles a KlausInstance object.
 type KlausInstanceReconciler struct {
 	client.Client
@@ -50,7 +57,7 @@ type KlausInstanceReconciler struct {
 	AnthropicKeySecret string
 	AnthropicKeyNs     string
 	OperatorNamespace  string
-	OCIClient          *klausoci.Client
+	OCIClient          OCIResolver
 }
 
 // +kubebuilder:rbac:groups=klaus.giantswarm.io,resources=klausinstances,verbs=get;list;watch;create;update;patch;delete
@@ -782,6 +789,9 @@ func (r *KlausInstanceReconciler) resolveOCIReferences(ctx context.Context, inst
 		resolved, err := r.OCIClient.ResolvePluginRefs(ctx, ociPlugins)
 		if err != nil {
 			return fmt.Errorf("resolving plugin references: %w", err)
+		}
+		if len(resolved) != len(instance.Spec.Plugins) {
+			return fmt.Errorf("plugin resolution returned %d results for %d inputs", len(resolved), len(instance.Spec.Plugins))
 		}
 		for i, p := range resolved {
 			instance.Spec.Plugins[i].Repository = p.Repository

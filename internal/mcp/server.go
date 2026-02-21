@@ -10,6 +10,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// ArtifactLister discovers available OCI artifacts from a registry.
+type ArtifactLister interface {
+	ListArtifacts(ctx context.Context, registryBase string) ([]klausoci.ListedArtifact, error)
+}
+
 // Server is the MCP server for the klaus-operator, exposing tools to
 // create, list, delete, get, and restart KlausInstance resources, and to
 // discover available OCI artifacts (plugins, personalities, toolchains).
@@ -18,13 +23,13 @@ type Server struct {
 	client            client.Client
 	operatorNamespace string
 	addr              string
-	ociClient         *klausoci.Client
+	ociClient         ArtifactLister
 	httpServer        *server.StreamableHTTPServer
 }
 
 // NewServer creates a new MCP server backed by the given Kubernetes client
 // and OCI client for artifact discovery.
-func NewServer(c client.Client, operatorNamespace, addr string, ociClient *klausoci.Client) *Server {
+func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
