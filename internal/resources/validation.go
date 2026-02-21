@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
 
@@ -78,7 +80,7 @@ func ValidatePluginRefs(plugins []klausv1alpha1.PluginReference) error {
 		}
 
 		// Short name uniqueness.
-		shortName := ShortPluginName(plugin.Repository)
+		shortName := klausoci.ShortName(plugin.Repository)
 		if existing, ok := seen[shortName]; ok {
 			return fmt.Errorf("spec.plugins[%d] (%s): short name %q conflicts with %s "+
 				"(plugin short names must be unique as they determine volume names and mount paths)",

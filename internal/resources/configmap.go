@@ -17,8 +17,7 @@ import (
 
 // BuildConfigMap creates the ConfigMap for a KlausInstance, containing all
 // configuration data: system prompts, MCP config, skills, agent files, hooks,
-// hook scripts, agents JSON, and JSON schema. This mirrors the Helm chart's
-// configmap.yaml rendering.
+// hook scripts, agents JSON, and JSON schema.
 func BuildConfigMap(instance *klausv1alpha1.KlausInstance, namespace string) (*corev1.ConfigMap, error) {
 	data := make(map[string]string)
 

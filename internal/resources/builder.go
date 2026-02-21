@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
 
@@ -41,6 +43,12 @@ const (
 
 	// PluginBasePath is the base path for OCI plugin mounts.
 	PluginBasePath = "/var/lib/klaus/plugins"
+
+	// PersonalityVolumeName is the volume name for the personality image volume.
+	PersonalityVolumeName = "personality"
+
+	// PersonalityMountPath is the mount path for the personality OCI artifact.
+	PersonalityMountPath = "/var/lib/klaus/personality"
 
 	// HookScriptsPath is the base path for hook scripts.
 	HookScriptsPath = "/etc/klaus/hooks"
@@ -143,28 +151,23 @@ func GitSecretKey(instance *klausv1alpha1.KlausInstance) string {
 	return DefaultGitSecretKey
 }
 
-// ShortPluginName extracts the last path segment from an OCI repository.
-func ShortPluginName(repository string) string {
-	parts := strings.Split(repository, "/")
-	return parts[len(parts)-1]
-}
-
 // PluginVolumeName returns the volume name for a plugin.
 func PluginVolumeName(plugin klausv1alpha1.PluginReference) string {
-	return "plugin-" + ShortPluginName(plugin.Repository)
+	return "plugin-" + klausoci.ShortName(plugin.Repository)
 }
 
 // PluginImageReference returns the full image reference for a plugin.
 func PluginImageReference(plugin klausv1alpha1.PluginReference) string {
-	if plugin.Digest != "" {
-		return plugin.Repository + "@" + plugin.Digest
-	}
-	return plugin.Repository + ":" + plugin.Tag
+	return klausoci.PluginReference{
+		Repository: plugin.Repository,
+		Tag:        plugin.Tag,
+		Digest:     plugin.Digest,
+	}.Ref()
 }
 
 // PluginMountPath returns the mount path for a plugin.
 func PluginMountPath(plugin klausv1alpha1.PluginReference) string {
-	return path.Join(PluginBasePath, ShortPluginName(plugin.Repository))
+	return path.Join(PluginBasePath, klausoci.ShortName(plugin.Repository))
 }
 
 // ConfigMapChecksum computes a SHA256 checksum of the ConfigMap data for

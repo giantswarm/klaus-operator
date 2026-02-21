@@ -263,16 +263,13 @@ spec:
                   Owner is the user identity (email) that owns this instance.
                   Used for access control and namespace isolation.
                 type: string
-              personalityRef:
-                description: PersonalityRef references a KlausPersonality template
-                  to use as defaults.
-                properties:
-                  name:
-                    description: Name is the name of the KlausPersonality resource.
-                    type: string
-                required:
-                - name
-                type: object
+              personality:
+                description: |-
+                  Personality is an OCI reference to a personality artifact that provides
+                  default configuration for this instance. The artifact must contain a
+                  personality.yaml file describing plugins, image overrides, and system prompts.
+                  Example: "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest"
+                type: string
               pluginDirs:
                 description: |-
                   PluginDirs specifies additional user-provided plugin directory paths.
@@ -592,7 +589,8 @@ spec:
                 format: int64
                 type: integer
               personality:
-                description: Personality is the name of the resolved KlausPersonality.
+                description: Personality is the OCI reference of the resolved personality
+                  artifact.
                 type: string
               pluginCount:
                 description: PluginCount is the number of plugins loaded.

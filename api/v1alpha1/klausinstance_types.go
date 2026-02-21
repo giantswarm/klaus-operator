@@ -9,13 +9,16 @@ import (
 
 // KlausInstanceSpec defines the desired state of a KlausInstance.
 type KlausInstanceSpec struct {
-	// PersonalityRef references a KlausPersonality template to use as defaults.
-	// +optional
-	PersonalityRef *PersonalityReference `json:"personalityRef,omitempty"`
-
 	// Owner is the user identity (email) that owns this instance.
 	// Used for access control and namespace isolation.
 	Owner string `json:"owner"`
+
+	// Personality is an OCI reference to a personality artifact that provides
+	// default configuration for this instance. The artifact must contain a
+	// personality.yaml file describing plugins, image overrides, and system prompts.
+	// Example: "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest"
+	// +optional
+	Personality string `json:"personality,omitempty"`
 
 	// Image overrides the container image for this instance.
 	// Takes precedence over personality image and the operator default.
@@ -84,12 +87,6 @@ type KlausInstanceSpec struct {
 	// Muster configures MCPServer CRD registration in the muster namespace.
 	// +optional
 	Muster *MusterConfig `json:"muster,omitempty"`
-}
-
-// PersonalityReference references a KlausPersonality by name.
-type PersonalityReference struct {
-	// Name is the name of the KlausPersonality resource.
-	Name string `json:"name"`
 }
 
 // PermissionMode controls how tool permissions are handled.
@@ -451,7 +448,7 @@ type KlausInstanceStatus struct {
 	// +optional
 	LastActivity *metav1.Time `json:"lastActivity,omitempty"`
 
-	// Personality is the name of the resolved KlausPersonality.
+	// Personality is the OCI reference of the resolved personality artifact.
 	// +optional
 	Personality string `json:"personality,omitempty"`
 

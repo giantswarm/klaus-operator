@@ -25,6 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/resources"
 )
@@ -38,6 +40,13 @@ var mcpServerGVK = schema.GroupVersionKind{
 	Kind:    "MCPServer",
 }
 
+// OCIResolver resolves short names and :latest tags to concrete OCI references.
+type OCIResolver interface {
+	ResolvePersonalityRef(ctx context.Context, ref string) (string, error)
+	ResolveToolchainRef(ctx context.Context, ref string) (string, error)
+	ResolvePluginRefs(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error)
+}
+
 // KlausInstanceReconciler reconciles a KlausInstance object.
 type KlausInstanceReconciler struct {
 	client.Client
@@ -48,6 +57,7 @@ type KlausInstanceReconciler struct {
 	AnthropicKeySecret string
 	AnthropicKeyNs     string
 	OperatorNamespace  string
+	OCIClient          OCIResolver
 }
 
 // +kubebuilder:rbac:groups=klaus.giantswarm.io,resources=klausinstances,verbs=get;list;watch;create;update;patch;delete
@@ -96,11 +106,13 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// Resolve personalityRef and merge personality defaults into instance spec.
-	// We work on a deep copy so the original object is not mutated in the cache.
+	// Deep copy the instance so the informer cache is not mutated.
 	merged := instance.DeepCopy()
-	if err := r.resolvePersonality(ctx, merged); err != nil {
-		return r.updateStatusError(ctx, &instance, "PersonalityError", err)
+
+	// Resolve OCI references (personality, plugins, toolchain image) to
+	// concrete versions so the pod spec uses pinned digests/tags.
+	if err := r.resolveOCIReferences(ctx, merged); err != nil {
+		return r.updateStatusError(ctx, &instance, "OCIResolutionError", err)
 	}
 
 	// Detect inline MCP server configs that will be overridden by resolved
@@ -490,11 +502,8 @@ func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.K
 		instance.Status.Mode = klausv1alpha1.InstanceModeSingleShot
 	}
 
-	if instance.Spec.PersonalityRef != nil {
-		instance.Status.Personality = instance.Spec.PersonalityRef.Name
-	} else {
-		instance.Status.Personality = ""
-	}
+	// Record the OCI personality reference in status.
+	instance.Status.Personality = instance.Spec.Personality
 
 	// Report the resolved image when it differs from the operator default.
 	if resolvedImage != r.KlausImage {
@@ -732,22 +741,65 @@ func (r *KlausInstanceReconciler) cleanupStaleMCPSecrets(ctx context.Context, ow
 	return nil
 }
 
-// resolvePersonality fetches the referenced KlausPersonality and merges its
-// spec into the instance spec. If no personalityRef is set, this is a no-op.
-func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
-	if instance.Spec.PersonalityRef == nil {
+// resolveOCIReferences resolves short names and :latest tags on personality,
+// plugin, and toolchain image references to concrete semver versions. The
+// resolved references are written back to the deep-copied instance spec so
+// the pod spec uses pinned versions.
+func (r *KlausInstanceReconciler) resolveOCIReferences(ctx context.Context, instance *klausv1alpha1.KlausInstance) error {
+	if r.OCIClient == nil {
 		return nil
 	}
 
-	var personality klausv1alpha1.KlausPersonality
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      instance.Spec.PersonalityRef.Name,
-		Namespace: instance.Namespace,
-	}, &personality); err != nil {
-		return fmt.Errorf("resolving personality %q: %w", instance.Spec.PersonalityRef.Name, err)
+	logger := log.FromContext(ctx)
+
+	// Resolve personality reference.
+	if instance.Spec.Personality != "" {
+		resolved, err := r.OCIClient.ResolvePersonalityRef(ctx, instance.Spec.Personality)
+		if err != nil {
+			return fmt.Errorf("resolving personality %q: %w", instance.Spec.Personality, err)
+		}
+		if resolved != instance.Spec.Personality {
+			logger.Info("resolved personality reference", "from", instance.Spec.Personality, "to", resolved)
+			instance.Spec.Personality = resolved
+		}
 	}
 
-	resources.MergePersonalityIntoInstance(&personality.Spec, &instance.Spec)
+	// Resolve toolchain image (the instance container image).
+	if instance.Spec.Image != "" {
+		resolved, err := r.OCIClient.ResolveToolchainRef(ctx, instance.Spec.Image)
+		if err != nil {
+			return fmt.Errorf("resolving toolchain image %q: %w", instance.Spec.Image, err)
+		}
+		if resolved != instance.Spec.Image {
+			logger.Info("resolved toolchain image", "from", instance.Spec.Image, "to", resolved)
+			instance.Spec.Image = resolved
+		}
+	}
+
+	// Resolve plugin references.
+	if len(instance.Spec.Plugins) > 0 {
+		ociPlugins := make([]klausoci.PluginReference, len(instance.Spec.Plugins))
+		for i, p := range instance.Spec.Plugins {
+			ociPlugins[i] = klausoci.PluginReference{
+				Repository: p.Repository,
+				Tag:        p.Tag,
+				Digest:     p.Digest,
+			}
+		}
+		resolved, err := r.OCIClient.ResolvePluginRefs(ctx, ociPlugins)
+		if err != nil {
+			return fmt.Errorf("resolving plugin references: %w", err)
+		}
+		if len(resolved) != len(instance.Spec.Plugins) {
+			return fmt.Errorf("plugin resolution returned %d results for %d inputs", len(resolved), len(instance.Spec.Plugins))
+		}
+		for i, p := range resolved {
+			instance.Spec.Plugins[i].Repository = p.Repository
+			instance.Spec.Plugins[i].Tag = p.Tag
+			instance.Spec.Plugins[i].Digest = p.Digest
+		}
+	}
+
 	return nil
 }
 
@@ -756,9 +808,6 @@ func (r *KlausInstanceReconciler) resolvePersonality(ctx context.Context, instan
 // resources live in different namespaces (user namespaces) from the parent
 // KlausInstance (operator namespace). Owns() relies on owner references which
 // cannot cross namespace boundaries.
-//
-// We also watch KlausPersonality resources so that changes to a personality
-// trigger reconciliation of all instances that reference it.
 func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	managedByPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchLabels: map[string]string{
@@ -792,9 +841,6 @@ func (r *KlausInstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(managedByPredicate)).
 		Watches(&corev1.ConfigMap{}, mapToInstance,
 			builder.WithPredicates(managedByPredicate)).
-		Watches(&klausv1alpha1.KlausPersonality{},
-			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingInstances(r.Client, r.OperatorNamespace)),
-		).
 		Watches(&klausv1alpha1.KlausMCPServer{},
 			handler.EnqueueRequestsFromMapFunc(EnqueueReferencingMCPServerInstances(r.Client, r.OperatorNamespace)),
 		).

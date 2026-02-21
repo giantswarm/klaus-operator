@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -55,9 +56,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 	}
 
 	if personality != "" {
-		instance.Spec.PersonalityRef = &klausv1alpha1.PersonalityReference{
-			Name: personality,
-		}
+		instance.Spec.Personality = personality
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
@@ -255,6 +254,56 @@ func mcpSuccess(data any) *mcpgolang.CallToolResult {
 			mcpgolang.NewTextContent(string(jsonBytes)),
 		},
 	}
+}
+
+// handleListPlugins lists available Klaus plugins from the OCI registry.
+func (s *Server) handleListPlugins(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
+	return s.listArtifacts(ctx, klausoci.DefaultPluginRegistry, "plugins")
+}
+
+// handleListPersonalities lists available Klaus personalities from the OCI registry.
+func (s *Server) handleListPersonalities(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
+	return s.listArtifacts(ctx, klausoci.DefaultPersonalityRegistry, "personalities")
+}
+
+// handleListToolchains lists available Klaus toolchain images from the OCI registry.
+func (s *Server) handleListToolchains(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
+	return s.listArtifacts(ctx, klausoci.DefaultToolchainRegistry, "toolchains")
+}
+
+func (s *Server) listArtifacts(ctx context.Context, registryBase, kind string) (*mcpgolang.CallToolResult, error) {
+	if s.ociClient == nil {
+		return mcpError("OCI client not configured"), nil
+	}
+
+	artifacts, err := s.ociClient.ListArtifacts(ctx, registryBase)
+	if err != nil {
+		return mcpError(fmt.Sprintf("failed to list %s: %s", kind, err.Error())), nil
+	}
+
+	items := make([]map[string]any, 0, len(artifacts))
+	for _, a := range artifacts {
+		item := map[string]any{
+			"repository": a.Repository,
+			"reference":  a.Reference,
+		}
+		if a.Name != "" {
+			item["name"] = a.Name
+		}
+		if a.Version != "" {
+			item["version"] = a.Version
+		}
+		if a.Type != "" {
+			item["type"] = a.Type
+		}
+		items = append(items, item)
+	}
+
+	return mcpSuccess(map[string]any{
+		"kind":  kind,
+		"count": len(items),
+		"items": items,
+	}), nil
 }
 
 func mcpError(msg string) *mcpgolang.CallToolResult {

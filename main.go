@@ -13,6 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 	"github.com/giantswarm/klaus-operator/internal/controller"
 	"github.com/giantswarm/klaus-operator/internal/mcp"
@@ -88,6 +90,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create the OCI client for version resolution and artifact discovery.
+	// Credentials are resolved from the Docker config mounted into the
+	// operator container via Kubernetes (single pull secret).
+	ociClient := klausoci.NewClient()
+
 	// Set up the KlausInstance controller.
 	if err := (&controller.KlausInstanceReconciler{
 		Client:             mgr.GetClient(),
@@ -98,19 +105,9 @@ func main() {
 		AnthropicKeySecret: anthropicKeySecret,
 		AnthropicKeyNs:     anthropicKeyNs,
 		OperatorNamespace:  operatorNamespace,
+		OCIClient:          ociClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KlausInstance")
-		os.Exit(1)
-	}
-
-	// Set up the KlausPersonality controller.
-	if err := (&controller.KlausPersonalityReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		Recorder:          mgr.GetEventRecorderFor("klauspersonality-controller"),
-		OperatorNamespace: operatorNamespace,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "KlausPersonality")
 		os.Exit(1)
 	}
 
@@ -136,7 +133,7 @@ func main() {
 	}
 
 	// Add the MCP server as a manager runnable for graceful lifecycle management.
-	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr)
+	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr, ociClient)
 	if err := mgr.Add(mcpServer); err != nil {
 		setupLog.Error(err, "unable to add MCP server to manager")
 		os.Exit(1)

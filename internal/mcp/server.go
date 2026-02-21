@@ -4,27 +4,37 @@ import (
 	"context"
 	"log/slog"
 
+	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// ArtifactLister discovers available OCI artifacts from a registry.
+type ArtifactLister interface {
+	ListArtifacts(ctx context.Context, registryBase string) ([]klausoci.ListedArtifact, error)
+}
+
 // Server is the MCP server for the klaus-operator, exposing tools to
-// create, list, delete, get, and restart KlausInstance resources.
+// create, list, delete, get, and restart KlausInstance resources, and to
+// discover available OCI artifacts (plugins, personalities, toolchains).
 // It implements manager.Runnable so it can be managed by controller-runtime.
 type Server struct {
 	client            client.Client
 	operatorNamespace string
 	addr              string
+	ociClient         ArtifactLister
 	httpServer        *server.StreamableHTTPServer
 }
 
-// NewServer creates a new MCP server backed by the given Kubernetes client.
-func NewServer(c client.Client, operatorNamespace, addr string) *Server {
+// NewServer creates a new MCP server backed by the given Kubernetes client
+// and OCI client for artifact discovery.
+func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
 		addr:              addr,
+		ociClient:         ociClient,
 	}
 
 	// Create the MCP server.
@@ -41,7 +51,7 @@ func NewServer(c client.Client, operatorNamespace, addr string) *Server {
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
 		mcpgolang.WithString("model", mcpgolang.Description("Claude model to use (default: claude-sonnet-4-20250514)")),
 		mcpgolang.WithString("system_prompt", mcpgolang.Description("System prompt for the agent")),
-		mcpgolang.WithString("personality", mcpgolang.Description("Name of a KlausPersonality to use as template")),
+		mcpgolang.WithString("personality", mcpgolang.Description("OCI reference to a personality artifact (e.g. registry/repo:tag)")),
 	), s.handleCreateInstance)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
@@ -66,6 +76,21 @@ func NewServer(c client.Client, operatorNamespace, addr string) *Server {
 		mcpgolang.WithDescription("Restart a Klaus instance by cycling its Deployment"),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to restart")),
 	), s.handleRestartInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_plugins",
+		mcpgolang.WithDescription("List available Klaus plugins from the OCI registry with version and metadata"),
+	), s.handleListPlugins)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_personalities",
+		mcpgolang.WithDescription("List available Klaus personalities from the OCI registry with version and metadata"),
+	), s.handleListPersonalities)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"list_toolchains",
+		mcpgolang.WithDescription("List available Klaus toolchain images from the OCI registry with version and metadata"),
+	), s.handleListToolchains)
 
 	s.httpServer = server.NewStreamableHTTPServer(mcpSrv,
 		server.WithHTTPContextFunc(HTTPContextFuncAuth),

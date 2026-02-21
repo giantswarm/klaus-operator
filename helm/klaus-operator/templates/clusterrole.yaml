@@ -15,13 +15,6 @@ rules:
 - apiGroups: ["klaus.giantswarm.io"]
   resources: ["klausinstances/finalizers"]
   verbs: ["update"]
-# KlausPersonality CRD management.
-- apiGroups: ["klaus.giantswarm.io"]
-  resources: ["klauspersonalities"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["klaus.giantswarm.io"]
-  resources: ["klauspersonalities/status"]
-  verbs: ["get", "update", "patch"]
 # KlausMCPServer CRD management.
 - apiGroups: ["klaus.giantswarm.io"]
   resources: ["klausmcpservers"]

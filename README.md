@@ -6,8 +6,7 @@ Kubernetes operator for dynamic management of [Klaus](https://github.com/giantsw
 
 The klaus-operator manages the full lifecycle of Klaus instances through Kubernetes CRDs:
 
-- **KlausInstance** -- represents a running Klaus agent with its configuration, workspace, and MCP server registration
-- **KlausPersonality** -- reusable templates combining plugins, skills, agents, hooks, MCP servers, and model settings
+- **KlausInstance** -- represents a running Klaus agent with its configuration, workspace, OCI personality reference, and MCP server registration
 - **KlausMCPServer** -- shared MCP server configurations with Secret injection for credentials
 
 ## Architecture
@@ -25,8 +24,7 @@ The operator itself exposes an MCP server interface (registered in Muster) with 
 
 | CRD | Description |
 |-----|-------------|
-| `KlausInstance` | A running Klaus agent instance with configuration and workspace |
-| `KlausPersonality` | Reusable template for instance configuration |
+| `KlausInstance` | A running Klaus agent instance with configuration, workspace, and OCI personality |
 | `KlausMCPServer` | Shared MCP server config with Secret-based credential injection |
 
 ## Development

@@ -3,6 +3,8 @@ package resources
 import (
 	"testing"
 
+	klausoci "github.com/giantswarm/klaus-oci"
+
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
 
@@ -54,7 +56,7 @@ func TestUserNamespace(t *testing.T) {
 	}
 }
 
-func TestShortPluginName(t *testing.T) {
+func TestShortName(t *testing.T) {
 	tests := []struct {
 		name       string
 		repository string
@@ -79,9 +81,9 @@ func TestShortPluginName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ShortPluginName(tt.repository)
+			result := klausoci.ShortName(tt.repository)
 			if result != tt.expected {
-				t.Errorf("ShortPluginName(%q) = %q, want %q", tt.repository, result, tt.expected)
+				t.Errorf("ShortName(%q) = %q, want %q", tt.repository, result, tt.expected)
 			}
 		})
 	}
