@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Auto-release workflow: automatically creates a patch version tag on every PR merge to `main`, triggering CircleCI to build and publish Docker images and Helm charts.
 - Git clone init container for workspace: when `workspace.gitRepo` is set, the operator prepends an init container that clones the repository into the workspace PVC before the main container starts. Supports incremental updates on restarts (#16).
 - `workspace.gitSecretRef` field on KlausInstance for private repository cloning via HTTPS access tokens (PAT or fine-grained token). The operator copies the referenced Secret (preserving its type) to the user namespace and injects the token into the clone URL (#16).
 - `--git-clone-image` CLI flag to configure the init container image for workspace git clones (defaults to `alpine/git:v2.47.2`).
