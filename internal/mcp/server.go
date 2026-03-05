@@ -12,7 +12,9 @@ import (
 
 // ArtifactLister discovers available OCI artifacts from a registry.
 type ArtifactLister interface {
-	ListArtifacts(ctx context.Context, registryBase string, opts ...klausoci.ListOption) ([]klausoci.ListedArtifact, error)
+	ListPlugins(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
+	ListPersonalities(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
+	ListToolchains(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
 }
 
 // Server is the MCP server for the klaus-operator, exposing tools to

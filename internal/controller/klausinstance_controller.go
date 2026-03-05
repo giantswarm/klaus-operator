@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -44,7 +45,7 @@ var mcpServerGVK = schema.GroupVersionKind{
 type OCIResolver interface {
 	ResolvePersonalityRef(ctx context.Context, ref string) (string, error)
 	ResolveToolchainRef(ctx context.Context, ref string) (string, error)
-	ResolvePluginRefs(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error)
+	ResolvePluginRef(ctx context.Context, ref string) (string, error)
 }
 
 // KlausInstanceReconciler reconciles a KlausInstance object.
@@ -777,26 +778,28 @@ func (r *KlausInstanceReconciler) resolveOCIReferences(ctx context.Context, inst
 	}
 
 	// Resolve plugin references.
-	if len(instance.Spec.Plugins) > 0 {
-		ociPlugins := make([]klausoci.PluginReference, len(instance.Spec.Plugins))
-		for i, p := range instance.Spec.Plugins {
-			ociPlugins[i] = klausoci.PluginReference{
-				Repository: p.Repository,
-				Tag:        p.Tag,
-				Digest:     p.Digest,
-			}
-		}
-		resolved, err := r.OCIClient.ResolvePluginRefs(ctx, ociPlugins)
+	for i, p := range instance.Spec.Plugins {
+		ref := klausoci.PluginReference{
+			Repository: p.Repository,
+			Tag:        p.Tag,
+			Digest:     p.Digest,
+		}.Ref()
+		resolved, err := r.OCIClient.ResolvePluginRef(ctx, ref)
 		if err != nil {
-			return fmt.Errorf("resolving plugin references: %w", err)
+			return fmt.Errorf("resolving plugin %q: %w", ref, err)
 		}
-		if len(resolved) != len(instance.Spec.Plugins) {
-			return fmt.Errorf("plugin resolution returned %d results for %d inputs", len(resolved), len(instance.Spec.Plugins))
-		}
-		for i, p := range resolved {
-			instance.Spec.Plugins[i].Repository = p.Repository
-			instance.Spec.Plugins[i].Tag = p.Tag
-			instance.Spec.Plugins[i].Digest = p.Digest
+		if resolved != ref {
+			logger.Info("resolved plugin reference", "from", ref, "to", resolved)
+			if idx := strings.Index(resolved, "@"); idx >= 0 {
+				instance.Spec.Plugins[i].Repository = resolved[:idx]
+				instance.Spec.Plugins[i].Tag = ""
+				instance.Spec.Plugins[i].Digest = resolved[idx+1:]
+			} else {
+				repo, tag := klausoci.SplitNameTag(resolved)
+				instance.Spec.Plugins[i].Repository = repo
+				instance.Spec.Plugins[i].Tag = tag
+				instance.Spec.Plugins[i].Digest = ""
+			}
 		}
 	}
 
