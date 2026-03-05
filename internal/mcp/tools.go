@@ -258,39 +258,43 @@ func mcpSuccess(data any) *mcpgolang.CallToolResult {
 
 // handleListPlugins lists available Klaus plugins from the OCI registry.
 func (s *Server) handleListPlugins(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultPluginRegistry, "plugins")
+	if s.ociClient == nil {
+		return mcpError("OCI client not configured"), nil
+	}
+	return s.listEntries(ctx, s.ociClient.ListPlugins, "plugins")
 }
 
 // handleListPersonalities lists available Klaus personalities from the OCI registry.
 func (s *Server) handleListPersonalities(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultPersonalityRegistry, "personalities")
+	if s.ociClient == nil {
+		return mcpError("OCI client not configured"), nil
+	}
+	return s.listEntries(ctx, s.ociClient.ListPersonalities, "personalities")
 }
 
 // handleListToolchains lists available Klaus toolchain images from the OCI registry.
 func (s *Server) handleListToolchains(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultToolchainRegistry, "toolchains")
-}
-
-func (s *Server) listArtifacts(ctx context.Context, registryBase, kind string) (*mcpgolang.CallToolResult, error) {
 	if s.ociClient == nil {
 		return mcpError("OCI client not configured"), nil
 	}
+	return s.listEntries(ctx, s.ociClient.ListToolchains, "toolchains")
+}
 
-	artifacts, err := s.ociClient.ListArtifacts(ctx, registryBase)
+func (s *Server) listEntries(ctx context.Context, listFn func(context.Context, ...klausoci.ListOption) ([]klausoci.ListEntry, error), kind string) (*mcpgolang.CallToolResult, error) {
+	entries, err := listFn(ctx)
 	if err != nil {
 		return mcpError(fmt.Sprintf("failed to list %s: %s", kind, err.Error())), nil
 	}
 
-	items := make([]map[string]any, 0, len(artifacts))
-	for _, a := range artifacts {
-		_, tag := klausoci.SplitNameTag(a.Reference)
+	items := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
 		item := map[string]any{
-			"name":       klausoci.ShortName(a.Repository),
-			"repository": a.Repository,
-			"reference":  a.Reference,
+			"name":       e.Name,
+			"repository": e.Repository,
+			"reference":  e.Reference,
 		}
-		if tag != "" {
-			item["version"] = tag
+		if e.Version != "" {
+			item["version"] = e.Version
 		}
 		items = append(items, item)
 	}
