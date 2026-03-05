@@ -307,4 +307,3 @@ func TestResolveOCIReferences_NoopWhenEmpty(t *testing.T) {
 		t.Error("expected no OCI calls when personality/image/plugins are empty")
 	}
 }
-
