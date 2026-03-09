@@ -34,6 +34,173 @@ func (f *fakePodLogReader) GetLogs(_ context.Context, _, _ string, opts *corev1.
 	return io.NopCloser(strings.NewReader(f.logs)), nil
 }
 
+func TestHandleGetInstance_AgentStatusEnrichment(t *testing.T) {
+	scheme := testScheme(t)
+	instance := runningInstance("my-agent", "user@example.com", "http://my-agent.klaus:8080")
+	instance.Spec.Claude.Model = "claude-sonnet-4-20250514"
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+	agent := &fakeAgentMCPClient{
+		statusResult: textResult(`{"status":"busy","message_count":7,"session_id":"sess-abc"}`),
+	}
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+		agentClient:       agent,
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"name": "my-agent"}
+
+	result, err := s.handleGetInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected MCP error: %s", result.Content[0].(mcpgolang.TextContent).Text)
+	}
+
+	var data map[string]any
+	text := result.Content[0].(mcpgolang.TextContent).Text
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// CRD-level fields should still be present.
+	if data["state"] != "Running" {
+		t.Errorf("state = %v, want %q", data["state"], "Running")
+	}
+
+	// Agent-level fields should be enriched.
+	if data["agent_status"] != "busy" {
+		t.Errorf("agent_status = %v, want %q", data["agent_status"], "busy")
+	}
+	if data["message_count"] != float64(7) {
+		t.Errorf("message_count = %v, want 7", data["message_count"])
+	}
+	if data["session_id"] != "sess-abc" {
+		t.Errorf("session_id = %v, want %q", data["session_id"], "sess-abc")
+	}
+
+	// Verify agent client received the right base URL.
+	if agent.lastBaseURL != "http://my-agent.klaus:8080/mcp" {
+		t.Errorf("baseURL = %q, want %q", agent.lastBaseURL, "http://my-agent.klaus:8080/mcp")
+	}
+}
+
+func TestHandleGetInstance_AgentUnreachable(t *testing.T) {
+	scheme := testScheme(t)
+	instance := runningInstance("my-agent", "user@example.com", "http://my-agent.klaus:8080")
+	instance.Spec.Claude.Model = "claude-sonnet-4-20250514"
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+	agent := &fakeAgentMCPClient{
+		statusErr: fmt.Errorf("connection refused"),
+	}
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+		agentClient:       agent,
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"name": "my-agent"}
+
+	result, err := s.handleGetInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should succeed with CRD-level data, not return an error.
+	if result.IsError {
+		t.Fatalf("unexpected MCP error: %s", result.Content[0].(mcpgolang.TextContent).Text)
+	}
+
+	var data map[string]any
+	text := result.Content[0].(mcpgolang.TextContent).Text
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// CRD-level fields should be present.
+	if data["state"] != "Running" {
+		t.Errorf("state = %v, want %q", data["state"], "Running")
+	}
+
+	// Agent-level fields should be absent.
+	if _, ok := data["agent_status"]; ok {
+		t.Errorf("agent_status should be absent when agent is unreachable, got %v", data["agent_status"])
+	}
+	if _, ok := data["message_count"]; ok {
+		t.Errorf("message_count should be absent when agent is unreachable, got %v", data["message_count"])
+	}
+	if _, ok := data["session_id"]; ok {
+		t.Errorf("session_id should be absent when agent is unreachable, got %v", data["session_id"])
+	}
+}
+
+func TestHandleGetInstance_NotRunningSkipsAgent(t *testing.T) {
+	scheme := testScheme(t)
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "my-agent",
+			Namespace:         "klaus-system",
+			CreationTimestamp: metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+		},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner: "user@example.com",
+			Claude: klausv1alpha1.ClaudeConfig{
+				Model: "claude-sonnet-4-20250514",
+			},
+		},
+		Status: klausv1alpha1.KlausInstanceStatus{
+			State: klausv1alpha1.InstanceStatePending,
+		},
+	}
+
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
+
+	agent := &fakeAgentMCPClient{
+		statusResult: textResult(`{"status":"busy","message_count":3,"session_id":"sess-xyz"}`),
+	}
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+		agentClient:       agent,
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"name": "my-agent"}
+
+	result, err := s.handleGetInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected MCP error: %s", result.Content[0].(mcpgolang.TextContent).Text)
+	}
+
+	var data map[string]any
+	text := result.Content[0].(mcpgolang.TextContent).Text
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	// Agent status should NOT have been called for non-running instance.
+	if _, ok := data["agent_status"]; ok {
+		t.Errorf("agent_status should be absent for non-running instance, got %v", data["agent_status"])
+	}
+
+	// The agent client should not have been called.
+	if agent.lastInstanceName != "" {
+		t.Errorf("agent client should not have been called, but lastInstanceName = %q", agent.lastInstanceName)
+	}
+}
+
 func TestHandleGetInstance_ToolchainIncluded(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := klausv1alpha1.AddToScheme(scheme); err != nil {
