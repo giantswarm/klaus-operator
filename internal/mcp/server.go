@@ -81,7 +81,7 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
 		"get_instance",
-		mcpgolang.WithDescription("Get details and status of a Klaus instance"),
+		mcpgolang.WithDescription("Get details and status of a Klaus instance. When the instance is running and the agent endpoint is reachable, includes agent-level status (agent_status, message_count, session_id)."),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance")),
 	), s.handleGetInstance)
 

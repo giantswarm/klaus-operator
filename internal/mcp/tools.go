@@ -132,7 +132,13 @@ func (s *Server) handleDeleteInstance(ctx context.Context, request mcpgolang.Cal
 	}), nil
 }
 
-// handleGetInstance returns details about a KlausInstance.
+// agentStatusTimeout bounds the agent status query so get_instance doesn't
+// block when the agent is unresponsive.
+const agentStatusTimeout = 5 * time.Second
+
+// handleGetInstance returns details about a KlausInstance, enriched with
+// agent-level status (agent_status, message_count, session_id) when the
+// instance is running and the agent endpoint is reachable.
 func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
 	instance, errResult := s.getOwnedInstance(ctx, request)
 	if errResult != nil {
@@ -161,7 +167,54 @@ func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallTo
 		result["lastActivity"] = instance.Status.LastActivity.Format(time.RFC3339)
 	}
 
+	// Best-effort enrichment: query agent-level status when running.
+	s.enrichAgentStatus(ctx, instance, result)
+
 	return mcpSuccess(result), nil
+}
+
+// agentStatusResponse represents the JSON payload returned by the agent's
+// status MCP tool inside the container.
+type agentStatusResponse struct {
+	Status       string `json:"status"`
+	MessageCount int    `json:"message_count"`
+	SessionID    string `json:"session_id"`
+}
+
+// enrichAgentStatus queries the agent's runtime status and merges
+// agent_status, message_count, and session_id into the response map. On any
+// error the response is left unchanged (CRD-level data only).
+func (s *Server) enrichAgentStatus(ctx context.Context, instance *klausv1alpha1.KlausInstance, result map[string]any) {
+	baseURL, errResult := s.agentBaseURL(instance)
+	if errResult != nil {
+		return // not running or no endpoint -- skip silently
+	}
+
+	if s.agentClient == nil {
+		return
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, agentStatusTimeout)
+	defer cancel()
+
+	statusResult, err := s.agentClient.Status(statusCtx, instance.Name, baseURL)
+	if err != nil {
+		return // agent unreachable -- return CRD-level data only
+	}
+
+	text := extractText(statusResult)
+	if text == "" {
+		return
+	}
+
+	var parsed agentStatusResponse
+	if err := json.Unmarshal([]byte(text), &parsed); err == nil && parsed.Status != "" {
+		result["agent_status"] = parsed.Status
+		result["message_count"] = parsed.MessageCount
+		if parsed.SessionID != "" {
+			result["session_id"] = parsed.SessionID
+		}
+	}
 }
 
 // handleRestartInstance restarts a KlausInstance by cycling its Deployment.
