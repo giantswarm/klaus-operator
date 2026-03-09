@@ -39,6 +39,11 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 
 	initContainers := buildGitCloneInitContainers(instance, gitCloneImage)
 
+	replicas := int32(1)
+	if instance.Spec.Stopped {
+		replicas = 0
+	}
+
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.Name,
@@ -46,7 +51,7 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: ptr.To(int32(1)),
+			Replicas: ptr.To(replicas),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: SelectorLabels(instance),
 			},

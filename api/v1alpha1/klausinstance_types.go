@@ -87,6 +87,13 @@ type KlausInstanceSpec struct {
 	// Muster configures MCPServer CRD registration in the muster namespace.
 	// +optional
 	Muster *MusterConfig `json:"muster,omitempty"`
+
+	// Stopped indicates that the instance should be scaled to zero replicas.
+	// When true, the controller sets the Deployment replicas to 0 and the
+	// instance status transitions to Stopped. Setting this back to false
+	// causes the controller to scale the Deployment back to 1 replica.
+	// +optional
+	Stopped bool `json:"stopped"`
 }
 
 // PermissionMode controls how tool permissions are handled.
