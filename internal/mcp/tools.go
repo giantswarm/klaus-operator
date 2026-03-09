@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -198,6 +201,89 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 		"status":  "restarting",
 		"message": "Instance '" + instance.Name + "' is being restarted",
 	}), nil
+}
+
+const (
+	// defaultTailLines is the default number of log lines to return.
+	defaultTailLines int64 = 100
+	// maxTailLines caps the tail parameter to prevent unbounded reads.
+	maxTailLines int64 = 10_000
+	// maxLogBytes caps the total bytes read from the log stream (1 MiB).
+	maxLogBytes int64 = 1 << 20
+)
+
+// handleGetLogs retrieves recent log output from a Klaus instance pod.
+func (s *Server) handleGetLogs(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
+	instance, errResult := s.getOwnedInstance(ctx, request)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	args := request.GetArguments()
+
+	// Parse optional tail parameter (default 100, capped at 10 000).
+	tailLines := defaultTailLines
+	if v, ok := args["tail"].(float64); ok && v > 0 {
+		tailLines = int64(v)
+	}
+	if tailLines > maxTailLines {
+		tailLines = maxTailLines
+	}
+
+	// Parse optional container parameter (default "klaus").
+	container := "klaus"
+	if v, _ := args["container"].(string); v != "" {
+		container = v
+	}
+
+	// Find pods matching the instance in the user namespace.
+	namespace := resources.UserNamespace(instance.Spec.Owner)
+	var podList corev1.PodList
+	sel := labels.SelectorFromSet(resources.SelectorLabels(instance))
+	if err := s.client.List(ctx, &podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: sel}); err != nil {
+		return mcpError("failed to list pods: " + err.Error()), nil
+	}
+
+	if len(podList.Items) == 0 {
+		return mcpError("no pods found for instance '" + instance.Name + "' (instance may still be starting)"), nil
+	}
+
+	// Prefer a Running pod when multiple exist (e.g. during a rollout).
+	pod := podList.Items[0]
+	for _, p := range podList.Items {
+		if p.Status.Phase == corev1.PodRunning {
+			pod = p
+			break
+		}
+	}
+
+	if s.podLogReader == nil {
+		return mcpError("pod log reader not configured"), nil
+	}
+
+	logOpts := &corev1.PodLogOptions{
+		Container: container,
+		TailLines: &tailLines,
+	}
+
+	stream, err := s.podLogReader.GetLogs(ctx, namespace, pod.Name, logOpts)
+	if err != nil {
+		return mcpError(fmt.Sprintf("failed to get logs for container %q: %v", container, err)), nil
+	}
+	defer stream.Close()
+
+	// Cap the read to maxLogBytes to prevent unbounded memory allocation.
+	logBytes, err := io.ReadAll(io.LimitReader(stream, maxLogBytes))
+	if err != nil {
+		return mcpError("failed to read log stream: " + err.Error()), nil
+	}
+
+	// Return raw text rather than JSON; log content is already human-readable.
+	return &mcpgolang.CallToolResult{
+		Content: []mcpgolang.Content{
+			mcpgolang.NewTextContent(string(logBytes)),
+		},
+	}, nil
 }
 
 // getOwnedInstance extracts the user and instance name from a tool request,
