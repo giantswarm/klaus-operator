@@ -2,11 +2,13 @@ package mcp
 
 import (
 	"context"
+	"io"
 	"log/slog"
 
 	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -15,6 +17,12 @@ type ArtifactLister interface {
 	ListPlugins(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
 	ListPersonalities(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
 	ListToolchains(ctx context.Context, opts ...klausoci.ListOption) ([]klausoci.ListEntry, error)
+}
+
+// PodLogReader reads logs from a pod container. The production implementation
+// uses the Kubernetes clientset (corev1client), while tests can supply a mock.
+type PodLogReader interface {
+	GetLogs(ctx context.Context, namespace, podName string, opts *corev1.PodLogOptions) (io.ReadCloser, error)
 }
 
 // Server is the MCP server for the klaus-operator, exposing tools to
@@ -26,17 +34,19 @@ type Server struct {
 	operatorNamespace string
 	addr              string
 	ociClient         ArtifactLister
+	podLogReader      PodLogReader
 	httpServer        *server.StreamableHTTPServer
 }
 
 // NewServer creates a new MCP server backed by the given Kubernetes client
 // and OCI client for artifact discovery.
-func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister) *Server {
+func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister, podLogReader PodLogReader) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
 		addr:              addr,
 		ociClient:         ociClient,
+		podLogReader:      podLogReader,
 	}
 
 	// Create the MCP server.
@@ -78,6 +88,14 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 		mcpgolang.WithDescription("Restart a Klaus instance by cycling its Deployment"),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to restart")),
 	), s.handleRestartInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"get_logs",
+		mcpgolang.WithDescription("Get recent log output from a Klaus instance pod"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance")),
+		mcpgolang.WithNumber("tail", mcpgolang.Description("Number of lines from end (default: 100)")),
+		mcpgolang.WithString("container", mcpgolang.Description("Container name (default: klaus; use git-clone for init container logs)")),
+	), s.handleGetLogs)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
 		"list_plugins",
