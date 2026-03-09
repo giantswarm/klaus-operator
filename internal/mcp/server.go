@@ -35,18 +35,20 @@ type Server struct {
 	addr              string
 	ociClient         ArtifactLister
 	podLogReader      PodLogReader
+	agentClient       AgentMCPClient
 	httpServer        *server.StreamableHTTPServer
 }
 
 // NewServer creates a new MCP server backed by the given Kubernetes client
 // and OCI client for artifact discovery.
-func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister, podLogReader PodLogReader) *Server {
+func NewServer(c client.Client, operatorNamespace, addr string, ociClient ArtifactLister, podLogReader PodLogReader, agentClient AgentMCPClient) *Server {
 	s := &Server{
 		client:            c,
 		operatorNamespace: operatorNamespace,
 		addr:              addr,
 		ociClient:         ociClient,
 		podLogReader:      podLogReader,
+		agentClient:       agentClient,
 	}
 
 	// Create the MCP server.
@@ -96,6 +98,21 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 		mcpgolang.WithNumber("tail", mcpgolang.Description("Number of lines from end (default: 100)")),
 		mcpgolang.WithString("container", mcpgolang.Description("Container name (default: klaus; use git-clone for init container logs)")),
 	), s.handleGetLogs)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"prompt_instance",
+		mcpgolang.WithDescription("Send a prompt to a running Klaus agent instance and optionally wait for the result"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Instance name")),
+		mcpgolang.WithString("message", mcpgolang.Required(), mcpgolang.Description("Prompt message to send to the agent")),
+		mcpgolang.WithBoolean("blocking", mcpgolang.Description("Wait for the agent to complete and return the result (default: false)")),
+	), s.handlePromptInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"get_result",
+		mcpgolang.WithDescription("Retrieve the result from the last prompt sent to a Klaus agent instance"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Instance name")),
+		mcpgolang.WithBoolean("full", mcpgolang.Description("Return full agent detail including tool_calls, model_usage, token_usage, cost, etc.")),
+	), s.handleGetResult)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
 		"list_plugins",
