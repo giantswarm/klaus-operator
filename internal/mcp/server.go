@@ -92,6 +92,18 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 	), s.handleRestartInstance)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
+		"stop_instance",
+		mcpgolang.WithDescription("Stop a Klaus instance by scaling its Deployment to zero (owner-only). Config and state are preserved."),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to stop")),
+	), s.handleStopInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
+		"start_instance",
+		mcpgolang.WithDescription("Start a previously stopped Klaus instance by scaling its Deployment back to one replica (owner-only)"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance to start")),
+	), s.handleStartInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
 		"get_logs",
 		mcpgolang.WithDescription("Get recent log output from a Klaus instance pod"),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name of the instance")),

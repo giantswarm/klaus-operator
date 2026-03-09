@@ -211,15 +211,22 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Check Deployment readiness before declaring Running.
+	// When the instance is stopped, the Deployment has 0 replicas so
+	// AvailableReplicas will be 0 -- this is expected, not a rollout.
 	var currentDep appsv1.Deployment
 	if err := r.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, &currentDep); err != nil {
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
 	}
-	deploymentReady := currentDep.Status.AvailableReplicas > 0
-	if deploymentReady {
-		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Available", "Deployment has available replicas")
+
+	if merged.Spec.Stopped {
+		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Stopped", "Deployment scaled to zero")
 	} else {
-		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
+		deploymentReady := currentDep.Status.AvailableReplicas > 0
+		if deploymentReady {
+			setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Available", "Deployment has available replicas")
+		} else {
+			setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
+		}
 	}
 
 	// 8. Create/update Service.
@@ -240,7 +247,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// 10. Update status. Use the merged spec for status computation (plugin
 	// counts, mode) so the status reflects the effective configuration.
-	if deploymentReady {
+	// When stopped, set the Stopped state and do not requeue for readiness.
+	if merged.Spec.Stopped {
+		return r.updateStatusStopped(ctx, &instance, namespace, resolvedImage)
+	}
+	if currentDep.Status.AvailableReplicas > 0 {
 		return r.updateStatusRunning(ctx, &instance, namespace, resolvedImage)
 	}
 	return r.updateStatusPending(ctx, &instance, namespace, resolvedImage)
@@ -522,6 +533,18 @@ func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, insta
 	if err := r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
+	return ctrl.Result{}, nil
+}
+
+func (r *KlausInstanceReconciler) updateStatusStopped(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace, resolvedImage string) (ctrl.Result, error) {
+	instance.Status.State = klausv1alpha1.InstanceStateStopped
+	r.populateCommonStatus(instance, namespace, resolvedImage)
+	setCondition(instance, ConditionReady, metav1.ConditionTrue, "Stopped", "Instance is stopped")
+
+	if err := r.Status().Update(ctx, instance); err != nil {
+		return ctrl.Result{}, err
+	}
+	// No requeue -- the instance is intentionally stopped.
 	return ctrl.Result{}, nil
 }
 

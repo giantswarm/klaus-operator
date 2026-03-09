@@ -431,6 +431,38 @@ func TestBuildDeployment_NoGitCloneWithoutRepo(t *testing.T) {
 	}
 }
 
+func TestBuildDeployment_StoppedZeroReplicas(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner:   "user@example.com",
+			Stopped: true,
+		},
+	}
+
+	dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, nil)
+
+	if *dep.Spec.Replicas != 0 {
+		t.Errorf("Replicas = %d, want 0 when stopped", *dep.Spec.Replicas)
+	}
+}
+
+func TestBuildDeployment_NotStoppedOneReplica(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner:   "user@example.com",
+			Stopped: false,
+		},
+	}
+
+	dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, nil)
+
+	if *dep.Spec.Replicas != 1 {
+		t.Errorf("Replicas = %d, want 1 when not stopped", *dep.Spec.Replicas)
+	}
+}
+
 func TestBuildGitCloneScript_WithRef(t *testing.T) {
 	script := buildGitCloneScript("https://github.com/example/project.git", "main", false, "")
 	if !strings.Contains(script, "--branch 'main'") {
