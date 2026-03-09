@@ -141,9 +141,10 @@ func main() {
 		os.Exit(1)
 	}
 	podLogReader := mcp.NewPodLogReader(clientset.CoreV1())
+	agentClient := mcp.NewAgentMCPClient()
 
 	// Add the MCP server as a manager runnable for graceful lifecycle management.
-	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr, ociClient, podLogReader)
+	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr, ociClient, podLogReader, agentClient)
 	if err := mgr.Add(mcpServer); err != nil {
 		setupLog.Error(err, "unable to add MCP server to manager")
 		os.Exit(1)
