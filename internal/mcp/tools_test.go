@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
@@ -624,5 +625,171 @@ func TestHandleGetLogs_AccessDenied(t *testing.T) {
 	text := result.Content[0].(mcpgolang.TextContent).Text
 	if !strings.Contains(text, "access denied") {
 		t.Errorf("error message = %q, want it to contain 'access denied'", text)
+	}
+}
+
+func TestHandleCreateInstance_MinimalArgs(t *testing.T) {
+	scheme := testScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name": "basic-instance",
+	}
+
+	result, err := s.handleCreateInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected MCP error: %s", result.Content[0].(mcpgolang.TextContent).Text)
+	}
+
+	var data map[string]any
+	text := result.Content[0].(mcpgolang.TextContent).Text
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	if data["name"] != "basic-instance" {
+		t.Errorf("name = %v, want %q", data["name"], "basic-instance")
+	}
+	if data["model"] != "claude-sonnet-4-20250514" {
+		t.Errorf("model = %v, want default model", data["model"])
+	}
+	if data["status"] != "creating" {
+		t.Errorf("status = %v, want %q", data["status"], "creating")
+	}
+}
+
+func TestHandleCreateInstance_FullSpec(t *testing.T) {
+	scheme := testScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":                   "full-instance",
+		"model":                  "claude-opus-4-20250514",
+		"system_prompt":          "You are a Go expert",
+		"personality":            "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest",
+		"image":                  "gsoci.azurecr.io/giantswarm/klaus-go:1.25",
+		"plugins":                []any{"gsoci.azurecr.io/giantswarm/plugins/code-reviewer:v0.1.0"},
+		"workspace_git_repo":     "https://github.com/org/repo.git",
+		"workspace_git_ref":      "main",
+		"workspace_git_secret":   "git-token",
+		"workspace_storage_class": "premium-rwo",
+		"workspace_size":         "10Gi",
+		"max_budget_usd":         float64(5.0),
+		"permission_mode":        "default",
+		"max_turns":              float64(25),
+		"effort":                 "high",
+		"mcp_servers":            []any{"github-server"},
+		"append_system_prompt":   "Always use tests",
+		"allowed_tools":          []any{"Read", "Write"},
+		"disallowed_tools":       []any{"WebSearch"},
+		"fallback_model":         "claude-haiku-4-5-20251001",
+		"persistent_mode":        true,
+	}
+
+	result, err := s.handleCreateInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected MCP error: %s", result.Content[0].(mcpgolang.TextContent).Text)
+	}
+
+	// Verify the instance was created in the fake client.
+	var instance klausv1alpha1.KlausInstance
+	if err := c.Get(context.Background(), client.ObjectKey{
+		Name: "full-instance", Namespace: "klaus-system",
+	}, &instance); err != nil {
+		t.Fatalf("failed to get created instance: %v", err)
+	}
+
+	spec := instance.Spec
+	if spec.Claude.Model != "claude-opus-4-20250514" {
+		t.Errorf("Model = %q", spec.Claude.Model)
+	}
+	if spec.Image != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" {
+		t.Errorf("Image = %q", spec.Image)
+	}
+	if len(spec.Plugins) != 1 {
+		t.Fatalf("Plugins = %d, want 1", len(spec.Plugins))
+	}
+	if spec.Plugins[0].Tag != "v0.1.0" {
+		t.Errorf("Plugin tag = %q", spec.Plugins[0].Tag)
+	}
+	if spec.Workspace == nil {
+		t.Fatal("Workspace should not be nil")
+	}
+	if spec.Workspace.GitRepo != "https://github.com/org/repo.git" {
+		t.Errorf("GitRepo = %q", spec.Workspace.GitRepo)
+	}
+	if spec.Workspace.GitSecretRef == nil || spec.Workspace.GitSecretRef.Name != "git-token" {
+		t.Errorf("GitSecretRef = %+v", spec.Workspace.GitSecretRef)
+	}
+	if spec.Claude.PermissionMode != klausv1alpha1.PermissionModeDefault {
+		t.Errorf("PermissionMode = %q", spec.Claude.PermissionMode)
+	}
+	if spec.Claude.MaxBudgetUSD == nil || *spec.Claude.MaxBudgetUSD != 5.0 {
+		t.Errorf("MaxBudgetUSD = %v", spec.Claude.MaxBudgetUSD)
+	}
+	if spec.Claude.MaxTurns == nil || *spec.Claude.MaxTurns != 25 {
+		t.Errorf("MaxTurns = %v", spec.Claude.MaxTurns)
+	}
+	if spec.Claude.Effort != klausv1alpha1.EffortHigh {
+		t.Errorf("Effort = %q", spec.Claude.Effort)
+	}
+	if len(spec.MCPServers) != 1 || spec.MCPServers[0].Name != "github-server" {
+		t.Errorf("MCPServers = %+v", spec.MCPServers)
+	}
+	if spec.Claude.AppendSystemPrompt != "Always use tests" {
+		t.Errorf("AppendSystemPrompt = %q", spec.Claude.AppendSystemPrompt)
+	}
+	if spec.Claude.FallbackModel != "claude-haiku-4-5-20251001" {
+		t.Errorf("FallbackModel = %q", spec.Claude.FallbackModel)
+	}
+	if spec.Claude.PersistentMode == nil || !*spec.Claude.PersistentMode {
+		t.Errorf("PersistentMode = %v", spec.Claude.PersistentMode)
+	}
+}
+
+func TestHandleCreateInstance_InvalidPlugin(t *testing.T) {
+	scheme := testScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	s := &Server{
+		client:            c,
+		operatorNamespace: "klaus-system",
+	}
+
+	req := mcpgolang.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"name":    "bad-plugin",
+		"plugins": []any{"no-tag-or-digest"},
+	}
+
+	result, err := s.handleCreateInstance(authCtx("user@example.com"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected MCP error for invalid plugin reference")
+	}
+
+	text := result.Content[0].(mcpgolang.TextContent).Text
+	if !strings.Contains(text, "plugin reference") {
+		t.Errorf("error = %q, want it to mention plugin reference", text)
 	}
 }

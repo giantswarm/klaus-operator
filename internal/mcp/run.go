@@ -57,17 +57,14 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 		return mcpError("message exceeds maximum size (1 MiB)"), nil
 	}
 
-	model, _ := args["model"].(string)
-	if model == "" {
-		model = "claude-sonnet-4-20250514"
-	}
-
-	systemPrompt, _ := args["system_prompt"].(string)
-	personality, _ := args["personality"].(string)
-
 	blocking := false
 	if v, ok := args["blocking"].(bool); ok {
 		blocking = v
+	}
+
+	spec, err := buildInstanceSpec(args, user)
+	if err != nil {
+		return mcpError(err.Error()), nil
 	}
 
 	// Stage 1: Create the KlausInstance CR.
@@ -76,18 +73,7 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 			Name:      name,
 			Namespace: s.operatorNamespace,
 		},
-		Spec: klausv1alpha1.KlausInstanceSpec{
-			Owner: user,
-			Claude: klausv1alpha1.ClaudeConfig{
-				Model:          model,
-				PermissionMode: klausv1alpha1.PermissionModeBypass,
-				SystemPrompt:   systemPrompt,
-			},
-		},
-	}
-
-	if personality != "" {
-		instance.Spec.Personality = personality
+		Spec: spec,
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
@@ -122,7 +108,7 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 	res := runResult{
 		Name:      name,
 		Owner:     user,
-		Model:     model,
+		Model:     spec.Claude.Model,
 		Namespace: resources.UserNamespace(user),
 		Status:    "started",
 		SessionID: s.agentClient.SessionID(name),

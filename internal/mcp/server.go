@@ -58,15 +58,39 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 		server.WithToolCapabilities(true),
 	)
 
-	// Register tools.
-	mcpSrv.AddTool(mcpgolang.NewTool(
-		"create_instance",
-		mcpgolang.WithDescription("Create a new Klaus agent instance for the calling user"),
-		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
+	// instanceSpecParams defines parameters shared by create_instance and run_instance.
+	instanceSpecParams := []mcpgolang.ToolOption{
 		mcpgolang.WithString("model", mcpgolang.Description("Claude model to use (default: claude-sonnet-4-20250514)")),
 		mcpgolang.WithString("system_prompt", mcpgolang.Description("System prompt for the agent")),
 		mcpgolang.WithString("personality", mcpgolang.Description("OCI reference to a personality artifact (e.g. registry/repo:tag)")),
-	), s.handleCreateInstance)
+		// High priority.
+		mcpgolang.WithString("image", mcpgolang.Description("Toolchain container image override")),
+		mcpgolang.WithArray("plugins", mcpgolang.Description("OCI plugin references (e.g. registry/repo:tag)"), mcpgolang.WithStringItems()),
+		mcpgolang.WithString("workspace_git_repo", mcpgolang.Description("Git repository URL to clone into the workspace")),
+		mcpgolang.WithString("workspace_git_ref", mcpgolang.Description("Git ref to checkout (branch, tag, or commit)")),
+		mcpgolang.WithString("workspace_git_secret", mcpgolang.Description("Name of a Kubernetes Secret containing a git access token")),
+		mcpgolang.WithString("workspace_storage_class", mcpgolang.Description("Kubernetes StorageClass for the workspace PVC")),
+		mcpgolang.WithString("workspace_size", mcpgolang.Description("Workspace PVC size (e.g. 5Gi, 10Gi)")),
+		mcpgolang.WithNumber("max_budget_usd", mcpgolang.Description("Maximum spend per session in USD")),
+		mcpgolang.WithString("permission_mode", mcpgolang.Description("Tool permission mode: bypassPermissions (default) or default"), mcpgolang.Enum("bypassPermissions", "default")),
+		mcpgolang.WithNumber("max_turns", mcpgolang.Description("Maximum number of agentic turns (0 = unlimited)")),
+		mcpgolang.WithString("effort", mcpgolang.Description("Thinking effort level"), mcpgolang.Enum("low", "medium", "high")),
+		// Medium priority.
+		mcpgolang.WithArray("mcp_servers", mcpgolang.Description("KlausMCPServer resource names to attach"), mcpgolang.WithStringItems()),
+		mcpgolang.WithString("append_system_prompt", mcpgolang.Description("Text appended to the default system prompt")),
+		mcpgolang.WithArray("allowed_tools", mcpgolang.Description("Restrict which tools can be used"), mcpgolang.WithStringItems()),
+		mcpgolang.WithArray("disallowed_tools", mcpgolang.Description("Prevent specific tools from being used"), mcpgolang.WithStringItems()),
+		mcpgolang.WithString("fallback_model", mcpgolang.Description("Fallback model if the primary is unavailable")),
+		mcpgolang.WithBoolean("persistent_mode", mcpgolang.Description("Enable bidirectional stream-json mode instead of single-shot")),
+	}
+
+	// Register tools.
+	createOpts := append([]mcpgolang.ToolOption{
+		mcpgolang.WithDescription("Create a new Klaus agent instance for the calling user"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
+	}, instanceSpecParams...)
+
+	mcpSrv.AddTool(mcpgolang.NewTool("create_instance", createOpts...), s.handleCreateInstance)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
 		"list_instances",
@@ -126,16 +150,16 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 		mcpgolang.WithBoolean("full", mcpgolang.Description("Return full agent detail including tool_calls, model_usage, token_usage, cost, etc.")),
 	), s.handleGetResult)
 
-	mcpSrv.AddTool(mcpgolang.NewTool(
-		"run_instance",
+	runOpts := append([]mcpgolang.ToolOption{
 		mcpgolang.WithDescription("Create a new Klaus agent instance, wait for it to become ready, and send a prompt -- a single operation combining create_instance + prompt_instance"),
 		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
 		mcpgolang.WithString("message", mcpgolang.Required(), mcpgolang.Description("Prompt message to send to the agent once ready")),
-		mcpgolang.WithString("model", mcpgolang.Description("Claude model to use (default: claude-sonnet-4-20250514)")),
-		mcpgolang.WithString("system_prompt", mcpgolang.Description("System prompt for the agent")),
-		mcpgolang.WithString("personality", mcpgolang.Description("OCI reference to a personality artifact (e.g. registry/repo:tag)")),
+	}, instanceSpecParams...)
+	runOpts = append(runOpts,
 		mcpgolang.WithBoolean("blocking", mcpgolang.Description("Wait for the agent to complete and return the result (default: false)")),
-	), s.handleRunInstance)
+	)
+
+	mcpSrv.AddTool(mcpgolang.NewTool("run_instance", runOpts...), s.handleRunInstance)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
 		"list_plugins",
