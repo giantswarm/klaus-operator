@@ -127,6 +127,17 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 	), s.handleGetResult)
 
 	mcpSrv.AddTool(mcpgolang.NewTool(
+		"run_instance",
+		mcpgolang.WithDescription("Create a new Klaus agent instance, wait for it to become ready, and send a prompt -- a single operation combining create_instance + prompt_instance"),
+		mcpgolang.WithString("name", mcpgolang.Required(), mcpgolang.Description("Name for the new instance")),
+		mcpgolang.WithString("message", mcpgolang.Required(), mcpgolang.Description("Prompt message to send to the agent once ready")),
+		mcpgolang.WithString("model", mcpgolang.Description("Claude model to use (default: claude-sonnet-4-20250514)")),
+		mcpgolang.WithString("system_prompt", mcpgolang.Description("System prompt for the agent")),
+		mcpgolang.WithString("personality", mcpgolang.Description("OCI reference to a personality artifact (e.g. registry/repo:tag)")),
+		mcpgolang.WithBoolean("blocking", mcpgolang.Description("Wait for the agent to complete and return the result (default: false)")),
+	), s.handleRunInstance)
+
+	mcpSrv.AddTool(mcpgolang.NewTool(
 		"list_plugins",
 		mcpgolang.WithDescription("List available Klaus plugins from the OCI registry with version and metadata"),
 	), s.handleListPlugins)
