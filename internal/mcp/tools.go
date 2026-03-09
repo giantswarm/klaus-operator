@@ -35,31 +35,17 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 		return mcpError("name is required"), nil
 	}
 
-	model, _ := args["model"].(string)
-	if model == "" {
-		model = "claude-sonnet-4-20250514"
+	spec, err := buildInstanceSpec(args, user)
+	if err != nil {
+		return mcpError(err.Error()), nil
 	}
-
-	systemPrompt, _ := args["system_prompt"].(string)
-	personality, _ := args["personality"].(string)
 
 	instance := &klausv1alpha1.KlausInstance{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: s.operatorNamespace,
 		},
-		Spec: klausv1alpha1.KlausInstanceSpec{
-			Owner: user,
-			Claude: klausv1alpha1.ClaudeConfig{
-				Model:          model,
-				PermissionMode: klausv1alpha1.PermissionModeBypass,
-				SystemPrompt:   systemPrompt,
-			},
-		},
-	}
-
-	if personality != "" {
-		instance.Spec.Personality = personality
+		Spec: spec,
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
@@ -72,7 +58,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 	return mcpSuccess(map[string]any{
 		"name":      name,
 		"owner":     user,
-		"model":     model,
+		"model":     spec.Claude.Model,
 		"namespace": resources.UserNamespace(user),
 		"status":    "creating",
 	}), nil
