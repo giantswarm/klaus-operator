@@ -18,7 +18,7 @@ func findMount(mounts []corev1.VolumeMount, mountPath string) *corev1.VolumeMoun
 	return nil
 }
 
-func TestBuildVolumeMounts_PersonalitySOUL(t *testing.T) {
+func TestBuildVolumeMounts_Personality(t *testing.T) {
 	instance := &klausv1alpha1.KlausInstance{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
 		Spec: klausv1alpha1.KlausInstanceSpec{
@@ -33,7 +33,7 @@ func TestBuildVolumeMounts_PersonalitySOUL(t *testing.T) {
 
 	mounts := BuildVolumeMounts(instance)
 
-	// Existing personality mount should still be present.
+	// Personality mount should be present.
 	pm := findMount(mounts, PersonalityMountPath)
 	if pm == nil {
 		t.Fatalf("expected personality mount at %s", PersonalityMountPath)
@@ -45,19 +45,11 @@ func TestBuildVolumeMounts_PersonalitySOUL(t *testing.T) {
 		t.Errorf("personality mount SubPath = %q, want empty", pm.SubPath)
 	}
 
-	// SOUL.md SubPath mount should be present.
-	sm := findMount(mounts, SOULMountPath)
-	if sm == nil {
-		t.Fatalf("expected SOUL mount at %s", SOULMountPath)
-	}
-	if sm.Name != PersonalityVolumeName {
-		t.Errorf("SOUL mount Name = %q, want %q", sm.Name, PersonalityVolumeName)
-	}
-	if sm.SubPath != "SOUL.md" {
-		t.Errorf("SOUL mount SubPath = %q, want %q", sm.SubPath, "SOUL.md")
-	}
-	if !sm.ReadOnly {
-		t.Error("SOUL mount should be read-only")
+	// No SubPath SOUL.md mount should exist (replaced by KLAUS_SOUL_FILE env var).
+	for _, m := range mounts {
+		if m.SubPath == "SOUL.md" {
+			t.Errorf("unexpected SubPath SOUL.md mount at %s", m.MountPath)
+		}
 	}
 }
 
@@ -78,7 +70,9 @@ func TestBuildVolumeMounts_NoPersonality(t *testing.T) {
 	if pm := findMount(mounts, PersonalityMountPath); pm != nil {
 		t.Errorf("unexpected personality mount at %s when personality is empty", PersonalityMountPath)
 	}
-	if sm := findMount(mounts, SOULMountPath); sm != nil {
-		t.Errorf("unexpected SOUL mount at %s when personality is empty", SOULMountPath)
+	for _, m := range mounts {
+		if m.SubPath == "SOUL.md" {
+			t.Errorf("unexpected SubPath SOUL.md mount when personality is empty")
+		}
 	}
 }

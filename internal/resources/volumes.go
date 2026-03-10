@@ -169,13 +169,6 @@ func BuildVolumeMounts(instance *klausv1alpha1.KlausInstance) []corev1.VolumeMou
 			MountPath: PersonalityMountPath,
 			ReadOnly:  true,
 		})
-		// SOUL.md mount (SubPath from personality OCI image volume).
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      PersonalityVolumeName,
-			MountPath: SOULMountPath,
-			SubPath:   "SOUL.md",
-			ReadOnly:  true,
-		})
 	}
 
 	// Plugin mounts (OCI image volumes).
