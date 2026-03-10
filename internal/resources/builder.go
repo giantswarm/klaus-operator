@@ -50,10 +50,6 @@ const (
 	// PersonalityMountPath is the mount path for the personality OCI artifact.
 	PersonalityMountPath = "/var/lib/klaus/personality"
 
-	// SOULMountPath is the path where the personality SOUL.md file is
-	// mounted. The klaus agent binary reads this path at startup.
-	SOULMountPath = "/etc/klaus/SOUL.md"
-
 	// HookScriptsPath is the base path for hook scripts.
 	HookScriptsPath = "/etc/klaus/hooks"
 

@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -249,6 +250,16 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_NO_SESSION_PERSISTENCE",
 			Value: "true",
+		})
+	}
+
+	// Personality SOUL file path. The klaus binary reads this env var to
+	// locate SOUL.md instead of requiring a SubPath volume mount (which
+	// Kubernetes image volumes do not support).
+	if instance.Spec.Personality != "" {
+		envs = append(envs, corev1.EnvVar{
+			Name:  "KLAUS_SOUL_FILE",
+			Value: path.Join(PersonalityMountPath, "SOUL.md"),
 		})
 	}
 
