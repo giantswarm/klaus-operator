@@ -200,7 +200,7 @@ func TestBuildDeployment_SelectorLabelsMatchPodLabels(t *testing.T) {
 		Spec: klausv1alpha1.KlausInstanceSpec{
 			Owner: "owner@example.com",
 			Claude: klausv1alpha1.ClaudeConfig{
-				PersistentMode: ptr.To(true),
+				Mode: ptr.To("chat"),
 			},
 		},
 	}

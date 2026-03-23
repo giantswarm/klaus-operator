@@ -124,9 +124,14 @@ func buildInstanceSpec(args map[string]any, owner string) (klausv1alpha1.KlausIn
 		spec.Claude.FallbackModel = v
 	}
 
-	// Persistent mode.
-	if v, ok := args["persistent_mode"].(bool); ok {
-		spec.Claude.PersistentMode = &v
+	// Mode.
+	if v, _ := args["mode"].(string); v != "" {
+		switch v {
+		case klausv1alpha1.ModeAgent, klausv1alpha1.ModeChat:
+			spec.Claude.Mode = &v
+		default:
+			return spec, fmt.Errorf("invalid mode %q: must be %q or %q", v, klausv1alpha1.ModeAgent, klausv1alpha1.ModeChat)
+		}
 	}
 
 	// Allowed tools.

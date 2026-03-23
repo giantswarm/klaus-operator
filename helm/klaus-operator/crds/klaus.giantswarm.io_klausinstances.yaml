@@ -161,12 +161,18 @@ spec:
                   mcpTimeout:
                     description: MCPTimeout sets the MCP_TIMEOUT env var (milliseconds).
                     type: integer
+                  mode:
+                    description: |-
+                      Mode selects the instance process mode.
+                      "agent" (default): autonomous coding, new process per prompt, no session persistence.
+                      "chat": interactive conversation, persistent process, sessions saved.
+                    enum:
+                    - agent
+                    - chat
+                    type: string
                   model:
                     description: Model specifies the Claude model to use.
                     type: string
-                  noSessionPersistence:
-                    description: NoSessionPersistence disables session persistence.
-                    type: boolean
                   permissionMode:
                     default: bypassPermissions
                     description: PermissionMode controls tool permission handling.
@@ -174,10 +180,6 @@ spec:
                     - bypassPermissions
                     - default
                     type: string
-                  persistentMode:
-                    description: PersistentMode enables bidirectional stream-json
-                      mode instead of single-shot.
-                    type: boolean
                   settingSources:
                     description: SettingSources controls which settings sources are
                       loaded.
@@ -407,6 +409,13 @@ spec:
                 description: Skills defines inline skill configurations rendered as
                   SKILL.md files.
                 type: object
+              stopped:
+                description: |-
+                  Stopped indicates that the instance should be scaled to zero replicas.
+                  When true, the controller sets the Deployment replicas to 0 and the
+                  instance status transitions to Stopped. Setting this back to false
+                  causes the controller to scale the Deployment back to 1 replica.
+                type: boolean
               telemetry:
                 description: Telemetry configures OpenTelemetry and Prometheus metrics.
                 properties:
@@ -578,10 +587,10 @@ spec:
                 description: MCPServerCount is the number of MCP servers configured.
                 type: integer
               mode:
-                description: Mode indicates the process mode (single-shot or persistent).
+                description: Mode indicates the process mode (agent or chat).
                 enum:
-                - single-shot
-                - persistent
+                - agent
+                - chat
                 type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
