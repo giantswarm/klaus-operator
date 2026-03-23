@@ -81,7 +81,7 @@ func NewServer(c client.Client, operatorNamespace, addr string, ociClient Artifa
 		mcpgolang.WithArray("allowed_tools", mcpgolang.Description("Restrict which tools can be used"), mcpgolang.WithStringItems()),
 		mcpgolang.WithArray("disallowed_tools", mcpgolang.Description("Prevent specific tools from being used"), mcpgolang.WithStringItems()),
 		mcpgolang.WithString("fallback_model", mcpgolang.Description("Fallback model if the primary is unavailable")),
-		mcpgolang.WithBoolean("persistent_mode", mcpgolang.Description("Enable bidirectional stream-json mode instead of single-shot")),
+		mcpgolang.WithString("mode", mcpgolang.Description("Instance process mode: agent (default, autonomous coding) or chat (interactive conversation)"), mcpgolang.Enum("agent", "chat")),
 	}
 
 	// Register tools.

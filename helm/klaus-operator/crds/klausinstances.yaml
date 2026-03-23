@@ -133,11 +133,13 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                     activeAgent:
                       type: string
-                    persistentMode:
-                      type: boolean
+                    mode:
+                      description: "Instance process mode: agent (default) or chat."
+                      type: string
+                      enum:
+                        - agent
+                        - chat
                     includePartialMessages:
-                      type: boolean
-                    noSessionPersistence:
                       type: boolean
                 plugins:
                   description: OCI image references for plugins.
@@ -318,6 +320,9 @@ spec:
                   type: string
                 mode:
                   type: string
+                  enum:
+                    - agent
+                    - chat
                 lastActivity:
                   type: string
                   format: date-time

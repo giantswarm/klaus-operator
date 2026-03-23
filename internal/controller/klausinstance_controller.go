@@ -508,10 +508,10 @@ func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.K
 	instance.Status.MCPServerCount = len(instance.Spec.MCPServers) + len(instance.Spec.Claude.MCPServers)
 	instance.Status.ObservedGeneration = instance.Generation
 
-	if instance.Spec.Claude.PersistentMode != nil && *instance.Spec.Claude.PersistentMode {
-		instance.Status.Mode = klausv1alpha1.InstanceModePersistent
+	if instance.Spec.Claude.Mode != nil && *instance.Spec.Claude.Mode == klausv1alpha1.ModeChat {
+		instance.Status.Mode = klausv1alpha1.InstanceModeChat
 	} else {
-		instance.Status.Mode = klausv1alpha1.InstanceModeSingleShot
+		instance.Status.Mode = klausv1alpha1.InstanceModeAgent
 	}
 
 	// Record the OCI personality reference in status.

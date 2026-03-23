@@ -229,26 +229,20 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 		})
 	}
 
-	// Persistent mode.
-	if instance.Spec.Claude.PersistentMode != nil && *instance.Spec.Claude.PersistentMode {
-		envs = append(envs, corev1.EnvVar{
-			Name:  "CLAUDE_PERSISTENT_MODE",
-			Value: "true",
-		})
+	// Mode (agent or chat). Default to "agent" when nil/empty.
+	mode := klausv1alpha1.ModeAgent
+	if instance.Spec.Claude.Mode != nil && *instance.Spec.Claude.Mode != "" {
+		mode = *instance.Spec.Claude.Mode
 	}
+	envs = append(envs, corev1.EnvVar{
+		Name:  "CLAUDE_MODE",
+		Value: mode,
+	})
 
 	// Include partial messages.
 	if instance.Spec.Claude.IncludePartialMessages != nil && *instance.Spec.Claude.IncludePartialMessages {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_INCLUDE_PARTIAL_MESSAGES",
-			Value: "true",
-		})
-	}
-
-	// No session persistence.
-	if instance.Spec.Claude.NoSessionPersistence != nil && *instance.Spec.Claude.NoSessionPersistence {
-		envs = append(envs, corev1.EnvVar{
-			Name:  "CLAUDE_NO_SESSION_PERSISTENCE",
 			Value: "true",
 		})
 	}

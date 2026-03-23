@@ -698,7 +698,7 @@ func TestHandleCreateInstance_FullSpec(t *testing.T) {
 		"allowed_tools":           []any{"Read", "Write"},
 		"disallowed_tools":        []any{"WebSearch"},
 		"fallback_model":          "claude-haiku-4-5-20251001",
-		"persistent_mode":         true,
+		"mode":                    "chat",
 	}
 
 	result, err := s.handleCreateInstance(authCtx("user@example.com"), req)
@@ -760,8 +760,8 @@ func TestHandleCreateInstance_FullSpec(t *testing.T) {
 	if spec.Claude.FallbackModel != "claude-haiku-4-5-20251001" {
 		t.Errorf("FallbackModel = %q", spec.Claude.FallbackModel)
 	}
-	if spec.Claude.PersistentMode == nil || !*spec.Claude.PersistentMode {
-		t.Errorf("PersistentMode = %v", spec.Claude.PersistentMode)
+	if spec.Claude.Mode == nil || *spec.Claude.Mode != "chat" {
+		t.Errorf("Mode = %v, want %q", spec.Claude.Mode, "chat")
 	}
 }
 

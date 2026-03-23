@@ -90,19 +90,31 @@ func TestBuildEnvVars_Telemetry(t *testing.T) {
 	assertEnvValue(t, envs, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
 }
 
-func TestBuildEnvVars_PersistentMode(t *testing.T) {
+func TestBuildEnvVars_ModeChat(t *testing.T) {
 	instance := &klausv1alpha1.KlausInstance{
 		Spec: klausv1alpha1.KlausInstanceSpec{
 			Owner: "test@example.com",
 			Claude: klausv1alpha1.ClaudeConfig{
-				PersistentMode: ptr.To(true),
+				Mode: ptr.To("chat"),
 			},
 		},
 	}
 
 	envs := BuildEnvVars(instance, "test-config", "test-secret")
 
-	assertEnvValue(t, envs, "CLAUDE_PERSISTENT_MODE", "true")
+	assertEnvValue(t, envs, "CLAUDE_MODE", "chat")
+}
+
+func TestBuildEnvVars_ModeDefaultAgent(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner: "test@example.com",
+		},
+	}
+
+	envs := BuildEnvVars(instance, "test-config", "test-secret")
+
+	assertEnvValue(t, envs, "CLAUDE_MODE", "agent")
 }
 
 func TestBuildEnvVars_SoulFileWithPersonality(t *testing.T) {

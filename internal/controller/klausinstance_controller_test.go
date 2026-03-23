@@ -127,7 +127,7 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 				{Name: "server-a"},
 			},
 			Claude: klausv1alpha1.ClaudeConfig{
-				PersistentMode: ptr.To(true),
+				Mode: ptr.To("chat"),
 				MCPServers: map[string]runtime.RawExtension{
 					"inline-server": {},
 				},
@@ -147,8 +147,8 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 	if instance.Status.ObservedGeneration != 3 {
 		t.Errorf("ObservedGeneration = %d, want 3", instance.Status.ObservedGeneration)
 	}
-	if instance.Status.Mode != klausv1alpha1.InstanceModePersistent {
-		t.Errorf("Mode = %q, want %q", instance.Status.Mode, klausv1alpha1.InstanceModePersistent)
+	if instance.Status.Mode != klausv1alpha1.InstanceModeChat {
+		t.Errorf("Mode = %q, want %q", instance.Status.Mode, klausv1alpha1.InstanceModeChat)
 	}
 	if instance.Status.Personality != "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest" {
 		t.Errorf("Personality = %q, want OCI ref", instance.Status.Personality)

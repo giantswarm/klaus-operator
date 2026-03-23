@@ -200,7 +200,7 @@ func TestBuildInstanceSpec_MediumPriority(t *testing.T) {
 	args := map[string]any{
 		"append_system_prompt": "Always respond in Japanese",
 		"fallback_model":       "claude-haiku-4-5-20251001",
-		"persistent_mode":      true,
+		"mode":                 "chat",
 		"allowed_tools":        []any{"Read", "Write", "Bash"},
 		"disallowed_tools":     []any{"WebSearch"},
 		"mcp_servers":          []any{"github-server", "slack-server"},
@@ -217,8 +217,8 @@ func TestBuildInstanceSpec_MediumPriority(t *testing.T) {
 	if spec.Claude.FallbackModel != "claude-haiku-4-5-20251001" {
 		t.Errorf("FallbackModel = %q", spec.Claude.FallbackModel)
 	}
-	if spec.Claude.PersistentMode == nil || !*spec.Claude.PersistentMode {
-		t.Errorf("PersistentMode = %v, want true", spec.Claude.PersistentMode)
+	if spec.Claude.Mode == nil || *spec.Claude.Mode != "chat" {
+		t.Errorf("Mode = %v, want %q", spec.Claude.Mode, "chat")
 	}
 	if len(spec.Claude.AllowedTools) != 3 {
 		t.Errorf("AllowedTools = %v, want 3 items", spec.Claude.AllowedTools)
@@ -297,19 +297,26 @@ func TestBuildInstanceSpec_WorkspacePartial(t *testing.T) {
 	}
 }
 
-func TestBuildInstanceSpec_PersistentModeFalse(t *testing.T) {
+func TestBuildInstanceSpec_ModeAgent(t *testing.T) {
 	args := map[string]any{
-		"persistent_mode": false,
+		"mode": "agent",
 	}
 	spec, err := buildInstanceSpec(args, "user@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if spec.Claude.PersistentMode == nil {
-		t.Fatal("PersistentMode should not be nil when explicitly set to false")
+	if spec.Claude.Mode == nil || *spec.Claude.Mode != "agent" {
+		t.Errorf("Mode = %v, want %q", spec.Claude.Mode, "agent")
 	}
-	if *spec.Claude.PersistentMode {
-		t.Error("PersistentMode should be false")
+}
+
+func TestBuildInstanceSpec_InvalidMode(t *testing.T) {
+	args := map[string]any{
+		"mode": "invalid",
+	}
+	_, err := buildInstanceSpec(args, "user@example.com")
+	if err == nil {
+		t.Fatal("expected error for invalid mode")
 	}
 }
 
