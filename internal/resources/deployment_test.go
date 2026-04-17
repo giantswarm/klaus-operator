@@ -200,7 +200,7 @@ func TestBuildDeployment_SelectorLabelsMatchPodLabels(t *testing.T) {
 		Spec: klausv1alpha1.KlausInstanceSpec{
 			Owner: "owner@example.com",
 			Claude: klausv1alpha1.ClaudeConfig{
-				PersistentMode: ptr.To(true),
+				Mode: ptr.To("chat"),
 			},
 		},
 	}
@@ -428,6 +428,38 @@ func TestBuildDeployment_NoGitCloneWithoutRepo(t *testing.T) {
 
 	if len(dep.Spec.Template.Spec.InitContainers) != 0 {
 		t.Error("expected no init containers when workspace has no gitRepo")
+	}
+}
+
+func TestBuildDeployment_StoppedZeroReplicas(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner:   "user@example.com",
+			Stopped: true,
+		},
+	}
+
+	dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, nil)
+
+	if *dep.Spec.Replicas != 0 {
+		t.Errorf("Replicas = %d, want 0 when stopped", *dep.Spec.Replicas)
+	}
+}
+
+func TestBuildDeployment_NotStoppedOneReplica(t *testing.T) {
+	instance := &klausv1alpha1.KlausInstance{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-instance"},
+		Spec: klausv1alpha1.KlausInstanceSpec{
+			Owner:   "user@example.com",
+			Stopped: false,
+		},
+	}
+
+	dep := BuildDeployment(instance, "klaus-user-test", "klaus:latest", DefaultGitCloneImage, nil)
+
+	if *dep.Spec.Replicas != 1 {
+		t.Errorf("Replicas = %d, want 1 when not stopped", *dep.Spec.Replicas)
 	}
 }
 

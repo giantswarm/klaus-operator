@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	klausoci "github.com/giantswarm/klaus-oci"
 	mcpgolang "github.com/mark3labs/mcp-go/mcp"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -32,31 +35,17 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 		return mcpError("name is required"), nil
 	}
 
-	model, _ := args["model"].(string)
-	if model == "" {
-		model = "claude-sonnet-4-20250514"
+	spec, err := buildInstanceSpec(args, user)
+	if err != nil {
+		return mcpError(err.Error()), nil
 	}
-
-	systemPrompt, _ := args["system_prompt"].(string)
-	personality, _ := args["personality"].(string)
 
 	instance := &klausv1alpha1.KlausInstance{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: s.operatorNamespace,
 		},
-		Spec: klausv1alpha1.KlausInstanceSpec{
-			Owner: user,
-			Claude: klausv1alpha1.ClaudeConfig{
-				Model:          model,
-				PermissionMode: klausv1alpha1.PermissionModeBypass,
-				SystemPrompt:   systemPrompt,
-			},
-		},
-	}
-
-	if personality != "" {
-		instance.Spec.Personality = personality
+		Spec: spec,
 	}
 
 	if err := s.client.Create(ctx, instance); err != nil {
@@ -69,7 +58,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 	return mcpSuccess(map[string]any{
 		"name":      name,
 		"owner":     user,
-		"model":     model,
+		"model":     spec.Claude.Model,
 		"namespace": resources.UserNamespace(user),
 		"status":    "creating",
 	}), nil
@@ -129,7 +118,13 @@ func (s *Server) handleDeleteInstance(ctx context.Context, request mcpgolang.Cal
 	}), nil
 }
 
-// handleGetInstance returns details about a KlausInstance.
+// agentStatusTimeout bounds the agent status query so get_instance doesn't
+// block when the agent is unresponsive.
+const agentStatusTimeout = 5 * time.Second
+
+// handleGetInstance returns details about a KlausInstance, enriched with
+// agent-level status (agent_status, message_count, session_id) when the
+// instance is running and the agent endpoint is reachable.
 func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
 	instance, errResult := s.getOwnedInstance(ctx, request)
 	if errResult != nil {
@@ -158,7 +153,54 @@ func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallTo
 		result["lastActivity"] = instance.Status.LastActivity.Format(time.RFC3339)
 	}
 
+	// Best-effort enrichment: query agent-level status when running.
+	s.enrichAgentStatus(ctx, instance, result)
+
 	return mcpSuccess(result), nil
+}
+
+// agentStatusResponse represents the JSON payload returned by the agent's
+// status MCP tool inside the container.
+type agentStatusResponse struct {
+	Status       string `json:"status"`
+	MessageCount int    `json:"message_count"`
+	SessionID    string `json:"session_id"`
+}
+
+// enrichAgentStatus queries the agent's runtime status and merges
+// agent_status, message_count, and session_id into the response map. On any
+// error the response is left unchanged (CRD-level data only).
+func (s *Server) enrichAgentStatus(ctx context.Context, instance *klausv1alpha1.KlausInstance, result map[string]any) {
+	baseURL, errResult := s.agentBaseURL(instance)
+	if errResult != nil {
+		return // not running or no endpoint -- skip silently
+	}
+
+	if s.agentClient == nil {
+		return
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, agentStatusTimeout)
+	defer cancel()
+
+	statusResult, err := s.agentClient.Status(statusCtx, instance.Name, baseURL)
+	if err != nil {
+		return // agent unreachable -- return CRD-level data only
+	}
+
+	text := extractText(statusResult)
+	if text == "" {
+		return
+	}
+
+	var parsed agentStatusResponse
+	if err := json.Unmarshal([]byte(text), &parsed); err == nil && parsed.Status != "" {
+		result["agent_status"] = parsed.Status
+		result["message_count"] = parsed.MessageCount
+		if parsed.SessionID != "" {
+			result["session_id"] = parsed.SessionID
+		}
+	}
 }
 
 // handleRestartInstance restarts a KlausInstance by cycling its Deployment.
@@ -198,6 +240,89 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 		"status":  "restarting",
 		"message": "Instance '" + instance.Name + "' is being restarted",
 	}), nil
+}
+
+const (
+	// defaultTailLines is the default number of log lines to return.
+	defaultTailLines int64 = 100
+	// maxTailLines caps the tail parameter to prevent unbounded reads.
+	maxTailLines int64 = 10_000
+	// maxLogBytes caps the total bytes read from the log stream (1 MiB).
+	maxLogBytes int64 = 1 << 20
+)
+
+// handleGetLogs retrieves recent log output from a Klaus instance pod.
+func (s *Server) handleGetLogs(ctx context.Context, request mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
+	instance, errResult := s.getOwnedInstance(ctx, request)
+	if errResult != nil {
+		return errResult, nil
+	}
+
+	args := request.GetArguments()
+
+	// Parse optional tail parameter (default 100, capped at 10 000).
+	tailLines := defaultTailLines
+	if v, ok := args["tail"].(float64); ok && v > 0 {
+		tailLines = int64(v)
+	}
+	if tailLines > maxTailLines {
+		tailLines = maxTailLines
+	}
+
+	// Parse optional container parameter (default "klaus").
+	container := "klaus"
+	if v, _ := args["container"].(string); v != "" {
+		container = v
+	}
+
+	// Find pods matching the instance in the user namespace.
+	namespace := resources.UserNamespace(instance.Spec.Owner)
+	var podList corev1.PodList
+	sel := labels.SelectorFromSet(resources.SelectorLabels(instance))
+	if err := s.client.List(ctx, &podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: sel}); err != nil {
+		return mcpError("failed to list pods: " + err.Error()), nil
+	}
+
+	if len(podList.Items) == 0 {
+		return mcpError("no pods found for instance '" + instance.Name + "' (instance may still be starting)"), nil
+	}
+
+	// Prefer a Running pod when multiple exist (e.g. during a rollout).
+	pod := podList.Items[0]
+	for _, p := range podList.Items {
+		if p.Status.Phase == corev1.PodRunning {
+			pod = p
+			break
+		}
+	}
+
+	if s.podLogReader == nil {
+		return mcpError("pod log reader not configured"), nil
+	}
+
+	logOpts := &corev1.PodLogOptions{
+		Container: container,
+		TailLines: &tailLines,
+	}
+
+	stream, err := s.podLogReader.GetLogs(ctx, namespace, pod.Name, logOpts)
+	if err != nil {
+		return mcpError(fmt.Sprintf("failed to get logs for container %q: %v", container, err)), nil
+	}
+	defer stream.Close()
+
+	// Cap the read to maxLogBytes to prevent unbounded memory allocation.
+	logBytes, err := io.ReadAll(io.LimitReader(stream, maxLogBytes))
+	if err != nil {
+		return mcpError("failed to read log stream: " + err.Error()), nil
+	}
+
+	// Return raw text rather than JSON; log content is already human-readable.
+	return &mcpgolang.CallToolResult{
+		Content: []mcpgolang.Content{
+			mcpgolang.NewTextContent(string(logBytes)),
+		},
+	}, nil
 }
 
 // getOwnedInstance extracts the user and instance name from a tool request,
@@ -258,39 +383,43 @@ func mcpSuccess(data any) *mcpgolang.CallToolResult {
 
 // handleListPlugins lists available Klaus plugins from the OCI registry.
 func (s *Server) handleListPlugins(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultPluginRegistry, "plugins")
+	if s.ociClient == nil {
+		return mcpError("OCI client not configured"), nil
+	}
+	return s.listEntries(ctx, s.ociClient.ListPlugins, "plugins")
 }
 
 // handleListPersonalities lists available Klaus personalities from the OCI registry.
 func (s *Server) handleListPersonalities(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultPersonalityRegistry, "personalities")
+	if s.ociClient == nil {
+		return mcpError("OCI client not configured"), nil
+	}
+	return s.listEntries(ctx, s.ociClient.ListPersonalities, "personalities")
 }
 
 // handleListToolchains lists available Klaus toolchain images from the OCI registry.
 func (s *Server) handleListToolchains(ctx context.Context, _ mcpgolang.CallToolRequest) (*mcpgolang.CallToolResult, error) {
-	return s.listArtifacts(ctx, klausoci.DefaultToolchainRegistry, "toolchains")
-}
-
-func (s *Server) listArtifacts(ctx context.Context, registryBase, kind string) (*mcpgolang.CallToolResult, error) {
 	if s.ociClient == nil {
 		return mcpError("OCI client not configured"), nil
 	}
+	return s.listEntries(ctx, s.ociClient.ListToolchains, "toolchains")
+}
 
-	artifacts, err := s.ociClient.ListArtifacts(ctx, registryBase)
+func (s *Server) listEntries(ctx context.Context, listFn func(context.Context, ...klausoci.ListOption) ([]klausoci.ListEntry, error), kind string) (*mcpgolang.CallToolResult, error) {
+	entries, err := listFn(ctx)
 	if err != nil {
 		return mcpError(fmt.Sprintf("failed to list %s: %s", kind, err.Error())), nil
 	}
 
-	items := make([]map[string]any, 0, len(artifacts))
-	for _, a := range artifacts {
-		_, tag := klausoci.SplitNameTag(a.Reference)
+	items := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
 		item := map[string]any{
-			"name":       klausoci.ShortName(a.Repository),
-			"repository": a.Repository,
-			"reference":  a.Reference,
+			"name":       e.Name,
+			"repository": e.Repository,
+			"reference":  e.Reference,
 		}
-		if tag != "" {
-			item["version"] = tag
+		if e.Version != "" {
+			item["version"] = e.Version
 		}
 		items = append(items, item)
 	}

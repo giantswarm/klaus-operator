@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -132,8 +133,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create a Kubernetes clientset for pod log access (the controller-runtime
+	// client does not support the pod log subresource).
+	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to create Kubernetes clientset")
+		os.Exit(1)
+	}
+	podLogReader := mcp.NewPodLogReader(clientset.CoreV1())
+	agentClient := mcp.NewAgentMCPClient()
+
 	// Add the MCP server as a manager runnable for graceful lifecycle management.
-	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr, ociClient)
+	mcpServer := mcp.NewServer(mgr.GetClient(), operatorNamespace, mcpAddr, ociClient, podLogReader, agentClient)
 	if err := mgr.Add(mcpServer); err != nil {
 		setupLog.Error(err, "unable to add MCP server to manager")
 		os.Exit(1)

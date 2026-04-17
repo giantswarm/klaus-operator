@@ -18,7 +18,7 @@ import (
 type mockOCIResolver struct {
 	personalityFn func(ctx context.Context, ref string) (string, error)
 	toolchainFn   func(ctx context.Context, ref string) (string, error)
-	pluginsFn     func(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error)
+	pluginFn      func(ctx context.Context, ref string) (string, error)
 }
 
 func (m *mockOCIResolver) ResolvePersonalityRef(ctx context.Context, ref string) (string, error) {
@@ -35,11 +35,11 @@ func (m *mockOCIResolver) ResolveToolchainRef(ctx context.Context, ref string) (
 	return ref, nil
 }
 
-func (m *mockOCIResolver) ResolvePluginRefs(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error) {
-	if m.pluginsFn != nil {
-		return m.pluginsFn(ctx, plugins)
+func (m *mockOCIResolver) ResolvePluginRef(ctx context.Context, ref string) (string, error) {
+	if m.pluginFn != nil {
+		return m.pluginFn(ctx, ref)
 	}
-	return plugins, nil
+	return ref, nil
 }
 
 func TestPopulateCommonStatus_Toolchain(t *testing.T) {
@@ -127,7 +127,7 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 				{Name: "server-a"},
 			},
 			Claude: klausv1alpha1.ClaudeConfig{
-				PersistentMode: ptr.To(true),
+				Mode: ptr.To("chat"),
 				MCPServers: map[string]runtime.RawExtension{
 					"inline-server": {},
 				},
@@ -147,8 +147,8 @@ func TestPopulateCommonStatus_BasicFields(t *testing.T) {
 	if instance.Status.ObservedGeneration != 3 {
 		t.Errorf("ObservedGeneration = %d, want 3", instance.Status.ObservedGeneration)
 	}
-	if instance.Status.Mode != klausv1alpha1.InstanceModePersistent {
-		t.Errorf("Mode = %q, want %q", instance.Status.Mode, klausv1alpha1.InstanceModePersistent)
+	if instance.Status.Mode != klausv1alpha1.InstanceModeChat {
+		t.Errorf("Mode = %q, want %q", instance.Status.Mode, klausv1alpha1.InstanceModeChat)
 	}
 	if instance.Status.Personality != "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest" {
 		t.Errorf("Personality = %q, want OCI ref", instance.Status.Personality)
@@ -183,15 +183,9 @@ func TestResolveOCIReferences_ResolvesAll(t *testing.T) {
 		toolchainFn: func(_ context.Context, ref string) (string, error) {
 			return "gsoci.azurecr.io/giantswarm/klaus-go:v1.25.0", nil
 		},
-		pluginsFn: func(_ context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error) {
-			resolved := make([]klausoci.PluginReference, len(plugins))
-			for i, p := range plugins {
-				resolved[i] = klausoci.PluginReference{
-					Repository: p.Repository,
-					Tag:        "v2.0.0",
-				}
-			}
-			return resolved, nil
+		pluginFn: func(_ context.Context, ref string) (string, error) {
+			repo, _ := klausoci.SplitNameTag(ref)
+			return repo + ":v2.0.0", nil
 		},
 	}
 
@@ -270,8 +264,8 @@ func TestResolveOCIReferences_ToolchainError(t *testing.T) {
 
 func TestResolveOCIReferences_PluginError(t *testing.T) {
 	mock := &mockOCIResolver{
-		pluginsFn: func(_ context.Context, _ []klausoci.PluginReference) ([]klausoci.PluginReference, error) {
-			return nil, errors.New("plugin resolve failed")
+		pluginFn: func(_ context.Context, _ string) (string, error) {
+			return "", errors.New("plugin resolve failed")
 		},
 	}
 
@@ -311,28 +305,5 @@ func TestResolveOCIReferences_NoopWhenEmpty(t *testing.T) {
 	}
 	if called {
 		t.Error("expected no OCI calls when personality/image/plugins are empty")
-	}
-}
-
-func TestResolveOCIReferences_PluginCountMismatch(t *testing.T) {
-	mock := &mockOCIResolver{
-		pluginsFn: func(_ context.Context, _ []klausoci.PluginReference) ([]klausoci.PluginReference, error) {
-			return []klausoci.PluginReference{}, nil
-		},
-	}
-
-	r := &KlausInstanceReconciler{OCIClient: mock}
-	instance := &klausv1alpha1.KlausInstance{
-		Spec: klausv1alpha1.KlausInstanceSpec{
-			Owner: "user@example.com",
-			Plugins: []klausv1alpha1.PluginReference{
-				{Repository: "gsoci.azurecr.io/giantswarm/plugins/platform", Tag: "latest"},
-			},
-		},
-	}
-
-	err := r.resolveOCIReferences(context.Background(), instance)
-	if err == nil {
-		t.Fatal("expected error for plugin count mismatch, got nil")
 	}
 }

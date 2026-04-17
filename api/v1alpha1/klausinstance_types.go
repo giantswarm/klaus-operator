@@ -87,6 +87,13 @@ type KlausInstanceSpec struct {
 	// Muster configures MCPServer CRD registration in the muster namespace.
 	// +optional
 	Muster *MusterConfig `json:"muster,omitempty"`
+
+	// Stopped indicates that the instance should be scaled to zero replicas.
+	// When true, the controller sets the Deployment replicas to 0 and the
+	// instance status transitions to Stopped. Setting this back to false
+	// causes the controller to scale the Deployment back to 1 replica.
+	// +optional
+	Stopped bool `json:"stopped"`
 }
 
 // PermissionMode controls how tool permissions are handled.
@@ -200,17 +207,16 @@ type ClaudeConfig struct {
 	// +optional
 	ActiveAgent string `json:"activeAgent,omitempty"`
 
-	// PersistentMode enables bidirectional stream-json mode instead of single-shot.
+	// Mode selects the instance process mode.
+	// "agent" (default): autonomous coding, new process per prompt, no session persistence.
+	// "chat": interactive conversation, persistent process, sessions saved.
+	// +kubebuilder:validation:Enum=agent;chat
 	// +optional
-	PersistentMode *bool `json:"persistentMode,omitempty"`
+	Mode *string `json:"mode,omitempty"`
 
 	// IncludePartialMessages enables streaming partial messages.
 	// +optional
 	IncludePartialMessages *bool `json:"includePartialMessages,omitempty"`
-
-	// NoSessionPersistence disables session persistence.
-	// +optional
-	NoSessionPersistence *bool `json:"noSessionPersistence,omitempty"`
 }
 
 // MCPServerSecret defines a Kubernetes Secret reference for MCP server credential injection.
@@ -422,12 +428,17 @@ const (
 )
 
 // InstanceMode represents the process mode of a KlausInstance.
-// +kubebuilder:validation:Enum=single-shot;persistent
+// +kubebuilder:validation:Enum=agent;chat
 type InstanceMode string
 
 const (
-	InstanceModeSingleShot InstanceMode = "single-shot"
-	InstanceModePersistent InstanceMode = "persistent"
+	InstanceModeAgent InstanceMode = "agent"
+	InstanceModeChat  InstanceMode = "chat"
+
+	// ModeAgent is the default spec mode value.
+	ModeAgent = "agent"
+	// ModeChat is the chat spec mode value.
+	ModeChat = "chat"
 )
 
 // KlausInstanceStatus defines the observed state of a KlausInstance.
@@ -440,7 +451,7 @@ type KlausInstanceStatus struct {
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// Mode indicates the process mode (single-shot or persistent).
+	// Mode indicates the process mode (agent or chat).
 	// +optional
 	Mode InstanceMode `json:"mode,omitempty"`
 

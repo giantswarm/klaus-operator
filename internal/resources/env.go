@@ -3,6 +3,7 @@ package resources
 import (
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -228,13 +229,15 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 		})
 	}
 
-	// Persistent mode.
-	if instance.Spec.Claude.PersistentMode != nil && *instance.Spec.Claude.PersistentMode {
-		envs = append(envs, corev1.EnvVar{
-			Name:  "CLAUDE_PERSISTENT_MODE",
-			Value: "true",
-		})
+	// Mode (agent or chat). Default to "agent" when nil/empty.
+	mode := klausv1alpha1.ModeAgent
+	if instance.Spec.Claude.Mode != nil && *instance.Spec.Claude.Mode != "" {
+		mode = *instance.Spec.Claude.Mode
 	}
+	envs = append(envs, corev1.EnvVar{
+		Name:  "CLAUDE_MODE",
+		Value: mode,
+	})
 
 	// Include partial messages.
 	if instance.Spec.Claude.IncludePartialMessages != nil && *instance.Spec.Claude.IncludePartialMessages {
@@ -244,11 +247,13 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 		})
 	}
 
-	// No session persistence.
-	if instance.Spec.Claude.NoSessionPersistence != nil && *instance.Spec.Claude.NoSessionPersistence {
+	// Personality SOUL file path. The klaus binary reads this env var to
+	// locate SOUL.md instead of requiring a SubPath volume mount (which
+	// Kubernetes image volumes do not support).
+	if instance.Spec.Personality != "" {
 		envs = append(envs, corev1.EnvVar{
-			Name:  "CLAUDE_NO_SESSION_PERSISTENCE",
-			Value: "true",
+			Name:  "KLAUS_SOUL_FILE",
+			Value: path.Join(PersonalityMountPath, "SOUL.md"),
 		})
 	}
 

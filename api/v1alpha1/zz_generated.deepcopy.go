@@ -89,18 +89,13 @@ func (in *ClaudeConfig) DeepCopyInto(out *ClaudeConfig) {
 			(*out)[key] = *val.DeepCopy()
 		}
 	}
-	if in.PersistentMode != nil {
-		in, out := &in.PersistentMode, &out.PersistentMode
-		*out = new(bool)
+	if in.Mode != nil {
+		in, out := &in.Mode, &out.Mode
+		*out = new(string)
 		**out = **in
 	}
 	if in.IncludePartialMessages != nil {
 		in, out := &in.IncludePartialMessages, &out.IncludePartialMessages
-		*out = new(bool)
-		**out = **in
-	}
-	if in.NoSessionPersistence != nil {
-		in, out := &in.NoSessionPersistence, &out.NoSessionPersistence
 		*out = new(bool)
 		**out = **in
 	}

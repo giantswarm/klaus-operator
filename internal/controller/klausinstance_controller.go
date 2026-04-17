@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -44,7 +45,7 @@ var mcpServerGVK = schema.GroupVersionKind{
 type OCIResolver interface {
 	ResolvePersonalityRef(ctx context.Context, ref string) (string, error)
 	ResolveToolchainRef(ctx context.Context, ref string) (string, error)
-	ResolvePluginRefs(ctx context.Context, plugins []klausoci.PluginReference) ([]klausoci.PluginReference, error)
+	ResolvePluginRef(ctx context.Context, ref string) (string, error)
 }
 
 // KlausInstanceReconciler reconciles a KlausInstance object.
@@ -210,15 +211,22 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Check Deployment readiness before declaring Running.
+	// When the instance is stopped, the Deployment has 0 replicas so
+	// AvailableReplicas will be 0 -- this is expected, not a rollout.
 	var currentDep appsv1.Deployment
 	if err := r.Get(ctx, types.NamespacedName{Name: dep.Name, Namespace: dep.Namespace}, &currentDep); err != nil {
 		return r.updateStatusError(ctx, &instance, "DeploymentError", err)
 	}
-	deploymentReady := currentDep.Status.AvailableReplicas > 0
-	if deploymentReady {
-		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Available", "Deployment has available replicas")
+
+	if merged.Spec.Stopped {
+		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Stopped", "Deployment scaled to zero")
 	} else {
-		setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
+		deploymentReady := currentDep.Status.AvailableReplicas > 0
+		if deploymentReady {
+			setCondition(&instance, ConditionDeploymentReady, metav1.ConditionTrue, "Available", "Deployment has available replicas")
+		} else {
+			setCondition(&instance, ConditionDeploymentReady, metav1.ConditionFalse, "Progressing", "Deployment is rolling out")
+		}
 	}
 
 	// 8. Create/update Service.
@@ -239,7 +247,11 @@ func (r *KlausInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// 10. Update status. Use the merged spec for status computation (plugin
 	// counts, mode) so the status reflects the effective configuration.
-	if deploymentReady {
+	// When stopped, set the Stopped state and do not requeue for readiness.
+	if merged.Spec.Stopped {
+		return r.updateStatusStopped(ctx, &instance, namespace, resolvedImage)
+	}
+	if currentDep.Status.AvailableReplicas > 0 {
 		return r.updateStatusRunning(ctx, &instance, namespace, resolvedImage)
 	}
 	return r.updateStatusPending(ctx, &instance, namespace, resolvedImage)
@@ -496,10 +508,10 @@ func (r *KlausInstanceReconciler) populateCommonStatus(instance *klausv1alpha1.K
 	instance.Status.MCPServerCount = len(instance.Spec.MCPServers) + len(instance.Spec.Claude.MCPServers)
 	instance.Status.ObservedGeneration = instance.Generation
 
-	if instance.Spec.Claude.PersistentMode != nil && *instance.Spec.Claude.PersistentMode {
-		instance.Status.Mode = klausv1alpha1.InstanceModePersistent
+	if instance.Spec.Claude.Mode != nil && *instance.Spec.Claude.Mode == klausv1alpha1.ModeChat {
+		instance.Status.Mode = klausv1alpha1.InstanceModeChat
 	} else {
-		instance.Status.Mode = klausv1alpha1.InstanceModeSingleShot
+		instance.Status.Mode = klausv1alpha1.InstanceModeAgent
 	}
 
 	// Record the OCI personality reference in status.
@@ -521,6 +533,18 @@ func (r *KlausInstanceReconciler) updateStatusRunning(ctx context.Context, insta
 	if err := r.Status().Update(ctx, instance); err != nil {
 		return ctrl.Result{}, err
 	}
+	return ctrl.Result{}, nil
+}
+
+func (r *KlausInstanceReconciler) updateStatusStopped(ctx context.Context, instance *klausv1alpha1.KlausInstance, namespace, resolvedImage string) (ctrl.Result, error) {
+	instance.Status.State = klausv1alpha1.InstanceStateStopped
+	r.populateCommonStatus(instance, namespace, resolvedImage)
+	setCondition(instance, ConditionReady, metav1.ConditionTrue, "Stopped", "Instance is stopped")
+
+	if err := r.Status().Update(ctx, instance); err != nil {
+		return ctrl.Result{}, err
+	}
+	// No requeue -- the instance is intentionally stopped.
 	return ctrl.Result{}, nil
 }
 
@@ -777,26 +801,28 @@ func (r *KlausInstanceReconciler) resolveOCIReferences(ctx context.Context, inst
 	}
 
 	// Resolve plugin references.
-	if len(instance.Spec.Plugins) > 0 {
-		ociPlugins := make([]klausoci.PluginReference, len(instance.Spec.Plugins))
-		for i, p := range instance.Spec.Plugins {
-			ociPlugins[i] = klausoci.PluginReference{
-				Repository: p.Repository,
-				Tag:        p.Tag,
-				Digest:     p.Digest,
-			}
-		}
-		resolved, err := r.OCIClient.ResolvePluginRefs(ctx, ociPlugins)
+	for i, p := range instance.Spec.Plugins {
+		ref := klausoci.PluginReference{
+			Repository: p.Repository,
+			Tag:        p.Tag,
+			Digest:     p.Digest,
+		}.Ref()
+		resolved, err := r.OCIClient.ResolvePluginRef(ctx, ref)
 		if err != nil {
-			return fmt.Errorf("resolving plugin references: %w", err)
+			return fmt.Errorf("resolving plugin %q: %w", ref, err)
 		}
-		if len(resolved) != len(instance.Spec.Plugins) {
-			return fmt.Errorf("plugin resolution returned %d results for %d inputs", len(resolved), len(instance.Spec.Plugins))
-		}
-		for i, p := range resolved {
-			instance.Spec.Plugins[i].Repository = p.Repository
-			instance.Spec.Plugins[i].Tag = p.Tag
-			instance.Spec.Plugins[i].Digest = p.Digest
+		if resolved != ref {
+			logger.Info("resolved plugin reference", "from", ref, "to", resolved)
+			if idx := strings.Index(resolved, "@"); idx >= 0 {
+				instance.Spec.Plugins[i].Repository = resolved[:idx]
+				instance.Spec.Plugins[i].Tag = ""
+				instance.Spec.Plugins[i].Digest = resolved[idx+1:]
+			} else {
+				repo, tag := klausoci.SplitNameTag(resolved)
+				instance.Spec.Plugins[i].Repository = repo
+				instance.Spec.Plugins[i].Tag = tag
+				instance.Spec.Plugins[i].Digest = ""
+			}
 		}
 	}
 
