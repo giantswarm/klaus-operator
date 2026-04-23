@@ -9,6 +9,9 @@ import (
 	klausv1alpha1 "github.com/giantswarm/klaus-operator/api/v1alpha1"
 )
 
+// defaultModel is the Claude model assumed when an MCP caller does not supply one.
+const defaultModel = "claude-sonnet-4-20250514"
+
 // parsePluginReference parses an OCI image reference string into a PluginReference.
 // Supported formats:
 //   - "repository:tag"       (e.g. "gsoci.azurecr.io/giantswarm/plugins/code-reviewer:v0.1.0")
@@ -57,7 +60,7 @@ func parsePluginReference(ref string) (klausv1alpha1.PluginReference, error) {
 func buildInstanceSpec(args map[string]any, owner string) (klausv1alpha1.KlausInstanceSpec, error) {
 	model, _ := args["model"].(string)
 	if model == "" {
-		model = "claude-sonnet-4-20250514"
+		model = defaultModel
 	}
 
 	systemPrompt, _ := args["system_prompt"].(string)
