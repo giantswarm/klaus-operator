@@ -127,7 +127,7 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 		return mcpError(fmt.Sprintf("prompt sent but waiting for result failed: %v", err)), nil
 	}
 
-	res.Status = "completed"
+	res.Status = "completed" //nolint:goconst
 	res.Result = result
 	return mcpSuccess(res), nil
 }

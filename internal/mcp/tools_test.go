@@ -38,7 +38,7 @@ func (f *fakePodLogReader) GetLogs(_ context.Context, _, _ string, opts *corev1.
 func TestHandleGetInstance_AgentStatusEnrichment(t *testing.T) {
 	scheme := testScheme(t)
 	instance := runningInstance("my-agent", "user@example.com", "http://my-agent.klaus:8080")
-	instance.Spec.Claude.Model = "claude-sonnet-4-20250514"
+	instance.Spec.Claude.Model = "claude-sonnet-4-20250514" //nolint:goconst
 
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instance).Build()
 
@@ -256,7 +256,7 @@ func TestHandleGetInstance_ToolchainIncluded(t *testing.T) {
 		t.Fatalf("failed to parse response: %v", err)
 	}
 
-	if data["toolchain"] != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" {
+	if data["toolchain"] != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" { //nolint:goconst
 		t.Errorf("toolchain = %v, want %q", data["toolchain"], "gsoci.azurecr.io/giantswarm/klaus-go:1.25")
 	}
 }

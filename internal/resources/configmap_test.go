@@ -19,7 +19,7 @@ func TestBuildConfigMap_SystemPrompt(t *testing.T) {
 			},
 		},
 	}
-	instance.Name = "test-instance"
+	instance.Name = "test-instance" //nolint:goconst
 
 	cm, err := BuildConfigMap(instance, "test-ns")
 	if err != nil {

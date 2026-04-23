@@ -351,7 +351,7 @@ func TestHandleGetResult_Summary(t *testing.T) {
 	if data.Instance != "my-agent" {
 		t.Errorf("instance = %q, want %q", data.Instance, "my-agent")
 	}
-	if data.Status != "completed" {
+	if data.Status != "completed" { //nolint:goconst
 		t.Errorf("status = %q, want %q", data.Status, "completed")
 	}
 	if data.MessageCount != 5 {

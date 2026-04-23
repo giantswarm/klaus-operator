@@ -57,7 +57,7 @@ const (
 	GitSecretVolumeName = "git-secret"
 
 	// GitSecretMountPath is where the git secret is mounted in the init container.
-	GitSecretMountPath = "/etc/git-secret"
+	GitSecretMountPath = "/etc/git-secret" // #nosec G101 -- mount path, not a credential
 
 	// GitTmpVolumeName is the name of the emptyDir volume providing a writable
 	// /tmp for the git-clone init container. Required because the init container
@@ -175,7 +175,7 @@ func PluginMountPath(plugin klausv1alpha1.PluginReference) string {
 func ConfigMapChecksum(data map[string]string) string {
 	h := sha256.New()
 	for _, k := range slices.Sorted(maps.Keys(data)) {
-		fmt.Fprintf(h, "%s=%s\n", k, data[k])
+		_, _ = fmt.Fprintf(h, "%s=%s\n", k, data[k])
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

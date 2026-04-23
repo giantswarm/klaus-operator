@@ -99,7 +99,7 @@ func TestHandleRunInstance_NonBlocking(t *testing.T) {
 	if data.SessionID != "sess-run-1" {
 		t.Errorf("session_id = %q, want %q", data.SessionID, "sess-run-1")
 	}
-	if data.Owner != "user@example.com" {
+	if data.Owner != "user@example.com" { //nolint:goconst
 		t.Errorf("owner = %q, want %q", data.Owner, "user@example.com")
 	}
 	if data.Model != "claude-sonnet-4-20250514" {

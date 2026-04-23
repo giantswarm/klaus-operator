@@ -25,7 +25,7 @@ func TestBuildDeployment_Basic(t *testing.T) {
 	configData := map[string]string{"system-prompt": "test prompt"}
 	dep := BuildDeployment(instance, "klaus-user-test", "gsoci.azurecr.io/giantswarm/klaus:v1.0.0", DefaultGitCloneImage, configData)
 
-	if dep.Name != "test-instance" {
+	if dep.Name != "test-instance" { //nolint:goconst
 		t.Errorf("Name = %q, want %q", dep.Name, "test-instance")
 	}
 	if dep.Namespace != "klaus-user-test" {
