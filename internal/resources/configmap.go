@@ -120,36 +120,36 @@ func renderSkillMD(skill klausv1alpha1.SkillConfig) string {
 	b.WriteString("---\n")
 
 	if skill.Description != "" {
-		b.WriteString(fmt.Sprintf("description: %q\n", skill.Description))
+		fmt.Fprintf(&b, "description: %q\n", skill.Description)
 	}
 	if skill.DisableModelInvocation != nil {
-		b.WriteString(fmt.Sprintf("disableModelInvocation: %t\n", *skill.DisableModelInvocation))
+		fmt.Fprintf(&b, "disableModelInvocation: %t\n", *skill.DisableModelInvocation)
 	}
 	if skill.UserInvocable != nil {
-		b.WriteString(fmt.Sprintf("userInvocable: %t\n", *skill.UserInvocable))
+		fmt.Fprintf(&b, "userInvocable: %t\n", *skill.UserInvocable)
 	}
 	if len(skill.AllowedTools) > 0 {
-		b.WriteString(fmt.Sprintf("allowedTools: %q\n", strings.Join(skill.AllowedTools, ",")))
+		fmt.Fprintf(&b, "allowedTools: %q\n", strings.Join(skill.AllowedTools, ","))
 	}
 	if skill.Model != "" {
-		b.WriteString(fmt.Sprintf("model: %q\n", skill.Model))
+		fmt.Fprintf(&b, "model: %q\n", skill.Model)
 	}
 	if skill.Context != nil && skill.Context.Raw != nil {
 		// Compact the JSON to a single line to avoid breaking YAML frontmatter
 		// structure with multi-line or YAML-special content.
 		compacted, err := compactJSON(skill.Context.Raw)
 		if err == nil {
-			b.WriteString(fmt.Sprintf("context:\n  %s\n", compacted))
+			fmt.Fprintf(&b, "context:\n  %s\n", compacted)
 		} else {
 			// Fall back to raw content if compaction fails.
-			b.WriteString(fmt.Sprintf("context:\n  %s\n", string(skill.Context.Raw)))
+			fmt.Fprintf(&b, "context:\n  %s\n", string(skill.Context.Raw))
 		}
 	}
 	if skill.Agent != "" {
-		b.WriteString(fmt.Sprintf("agent: %q\n", skill.Agent))
+		fmt.Fprintf(&b, "agent: %q\n", skill.Agent)
 	}
 	if skill.ArgumentHint != "" {
-		b.WriteString(fmt.Sprintf("argumentHint: %q\n", skill.ArgumentHint))
+		fmt.Fprintf(&b, "argumentHint: %q\n", skill.ArgumentHint)
 	}
 
 	b.WriteString("---\n")

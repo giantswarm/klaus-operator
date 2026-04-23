@@ -99,7 +99,7 @@ func TestBuildInstanceSpec_Defaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if spec.Owner != "user@example.com" {
+	if spec.Owner != "user@example.com" { //nolint:goconst
 		t.Errorf("Owner = %q, want %q", spec.Owner, "user@example.com")
 	}
 	if spec.Claude.Model != "claude-sonnet-4-20250514" {
@@ -139,7 +139,7 @@ func TestBuildInstanceSpec_AllHighPriority(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if spec.Claude.Model != "claude-opus-4-20250514" {
+	if spec.Claude.Model != "claude-opus-4-20250514" { //nolint:goconst
 		t.Errorf("Model = %q, want %q", spec.Claude.Model, "claude-opus-4-20250514")
 	}
 	if spec.Claude.SystemPrompt != "You are a helpful assistant" {
@@ -148,7 +148,7 @@ func TestBuildInstanceSpec_AllHighPriority(t *testing.T) {
 	if spec.Personality != "gsoci.azurecr.io/giantswarm/personalities/go-dev:latest" {
 		t.Errorf("Personality = %q", spec.Personality)
 	}
-	if spec.Image != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" {
+	if spec.Image != "gsoci.azurecr.io/giantswarm/klaus-go:1.25" { //nolint:goconst
 		t.Errorf("Image = %q", spec.Image)
 	}
 	if spec.Claude.PermissionMode != klausv1alpha1.PermissionModeDefault {

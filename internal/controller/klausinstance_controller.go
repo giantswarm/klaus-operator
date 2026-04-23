@@ -291,7 +291,7 @@ func (r *KlausInstanceReconciler) copyAPIKeySecret(ctx context.Context, instance
 
 	apiKey, ok := srcSecret.Data["api-key"]
 	if !ok {
-		return false, fmt.Errorf("Anthropic API key secret missing 'api-key' field")
+		return false, fmt.Errorf("anthropic API key secret missing 'api-key' field")
 	}
 
 	// Create or update the secret in the instance namespace.
