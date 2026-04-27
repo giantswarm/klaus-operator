@@ -100,7 +100,7 @@ func main() {
 	if err := (&controller.KlausInstanceReconciler{
 		Client:             mgr.GetClient(),
 		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("klausinstance-controller"),
+		Recorder:           mgr.GetEventRecorderFor("klausinstance-controller"), //nolint:staticcheck
 		KlausImage:         klausImage,
 		GitCloneImage:      gitCloneImage,
 		AnthropicKeySecret: anthropicKeySecret,
@@ -116,7 +116,7 @@ func main() {
 	if err := (&controller.KlausMCPServerReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
-		Recorder:          mgr.GetEventRecorderFor("klausmcpserver-controller"),
+		Recorder:          mgr.GetEventRecorderFor("klausmcpserver-controller"), //nolint:staticcheck
 		OperatorNamespace: operatorNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KlausMCPServer")

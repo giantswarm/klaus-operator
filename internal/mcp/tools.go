@@ -309,7 +309,7 @@ func (s *Server) handleGetLogs(ctx context.Context, request mcpgolang.CallToolRe
 	if err != nil {
 		return mcpError(fmt.Sprintf("failed to get logs for container %q: %v", container, err)), nil
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Cap the read to maxLogBytes to prevent unbounded memory allocation.
 	logBytes, err := io.ReadAll(io.LimitReader(stream, maxLogBytes))
