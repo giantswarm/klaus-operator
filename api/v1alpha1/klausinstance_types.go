@@ -509,7 +509,3 @@ type KlausInstanceList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []KlausInstance `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&KlausInstance{}, &KlausInstanceList{})
-}

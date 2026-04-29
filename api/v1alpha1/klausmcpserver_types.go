@@ -86,7 +86,3 @@ type KlausMCPServerList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []KlausMCPServer `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&KlausMCPServer{}, &KlausMCPServerList{})
-}
