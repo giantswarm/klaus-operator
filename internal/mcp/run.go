@@ -44,12 +44,12 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 
 	args := request.GetArguments()
 
-	name, _ := args["name"].(string)
+	name, _ := args[keyName].(string)
 	if name == "" {
 		return mcpError("name is required"), nil
 	}
 
-	message, _ := args["message"].(string)
+	message, _ := args[keyMessage].(string)
 	if message == "" {
 		return mcpError("message is required"), nil
 	}
@@ -110,7 +110,7 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 		Owner:     user,
 		Model:     spec.Claude.Model,
 		Namespace: resources.UserNamespace(user),
-		Status:    "started",
+		Status:    statusStarted,
 		SessionID: s.agentClient.SessionID(name),
 		Result:    extractText(toolResult),
 	}
@@ -127,7 +127,7 @@ func (s *Server) handleRunInstance(ctx context.Context, request mcpgolang.CallTo
 		return mcpError(fmt.Sprintf("prompt sent but waiting for result failed: %v", err)), nil
 	}
 
-	res.Status = "completed" //nolint:goconst
+	res.Status = statusCompleted
 	res.Result = result
 	return mcpSuccess(res), nil
 }

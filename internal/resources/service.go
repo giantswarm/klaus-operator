@@ -25,9 +25,9 @@ func BuildService(instance *klausv1alpha1.KlausInstance, namespace string) *core
 			Selector: SelectorLabels(instance),
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       HTTPPortName,
 					Port:       int32(KlausPort),
-					TargetPort: intstr.FromString("http"),
+					TargetPort: intstr.FromString(HTTPPortName),
 					Protocol:   corev1.ProtocolTCP,
 				},
 			},

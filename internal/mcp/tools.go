@@ -30,7 +30,7 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 
 	args := request.GetArguments()
 
-	name, _ := args["name"].(string)
+	name, _ := args[keyName].(string)
 	if name == "" {
 		return mcpError("name is required"), nil
 	}
@@ -56,11 +56,11 @@ func (s *Server) handleCreateInstance(ctx context.Context, request mcpgolang.Cal
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":      name,
-		"owner":     user,
-		"model":     spec.Claude.Model,
+		keyName:     name,
+		keyOwner:    user,
+		keyModel:    spec.Claude.Model,
 		"namespace": resources.UserNamespace(user),
-		"status":    "creating",
+		keyStatus:   "creating",
 	}), nil
 }
 
@@ -82,19 +82,19 @@ func (s *Server) handleListInstances(ctx context.Context, _ mcpgolang.CallToolRe
 			continue
 		}
 		userInstances = append(userInstances, map[string]any{
-			"name":        inst.Name,
-			"state":       string(inst.Status.State),
-			"endpoint":    inst.Status.Endpoint,
-			"mode":        inst.Status.Mode,
-			"personality": inst.Status.Personality,
-			"plugins":     inst.Status.PluginCount,
-			"mcpServers":  inst.Status.MCPServerCount,
-			"age":         time.Since(inst.CreationTimestamp.Time).Truncate(time.Second).String(),
+			keyName:        inst.Name,
+			"state":        string(inst.Status.State),
+			"endpoint":     inst.Status.Endpoint,
+			keyMode:        inst.Status.Mode,
+			keyPersonality: inst.Status.Personality,
+			keyPlugins:     inst.Status.PluginCount,
+			"mcpServers":   inst.Status.MCPServerCount,
+			"age":          time.Since(inst.CreationTimestamp.Time).Truncate(time.Second).String(),
 		})
 	}
 
 	return mcpSuccess(map[string]any{
-		"owner":     user,
+		keyOwner:    user,
 		"count":     len(userInstances),
 		"instances": userInstances,
 	}), nil
@@ -112,9 +112,9 @@ func (s *Server) handleDeleteInstance(ctx context.Context, request mcpgolang.Cal
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    instance.Name,
-		"status":  "deleting",
-		"message": "Instance '" + instance.Name + "' is being deleted",
+		keyName:    instance.Name,
+		keyStatus:  "deleting",
+		keyMessage: "Instance '" + instance.Name + "' is being deleted",
 	}), nil
 }
 
@@ -132,17 +132,17 @@ func (s *Server) handleGetInstance(ctx context.Context, request mcpgolang.CallTo
 	}
 
 	result := map[string]any{
-		"name":        instance.Name,
-		"owner":       instance.Spec.Owner,
-		"state":       string(instance.Status.State),
-		"endpoint":    instance.Status.Endpoint,
-		"mode":        instance.Status.Mode,
-		"model":       instance.Spec.Claude.Model,
-		"personality": instance.Status.Personality,
-		"plugins":     instance.Status.PluginCount,
-		"mcpServers":  instance.Status.MCPServerCount,
-		"created":     instance.CreationTimestamp.Format(time.RFC3339),
-		"namespace":   resources.UserNamespace(instance.Spec.Owner),
+		keyName:        instance.Name,
+		keyOwner:       instance.Spec.Owner,
+		"state":        string(instance.Status.State),
+		"endpoint":     instance.Status.Endpoint,
+		keyMode:        instance.Status.Mode,
+		keyModel:       instance.Spec.Claude.Model,
+		keyPersonality: instance.Status.Personality,
+		keyPlugins:     instance.Status.PluginCount,
+		"mcpServers":   instance.Status.MCPServerCount,
+		"created":      instance.CreationTimestamp.Format(time.RFC3339),
+		"namespace":    resources.UserNamespace(instance.Spec.Owner),
 	}
 
 	if instance.Status.Toolchain != "" {
@@ -236,9 +236,9 @@ func (s *Server) handleRestartInstance(ctx context.Context, request mcpgolang.Ca
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    instance.Name,
-		"status":  "restarting",
-		"message": "Instance '" + instance.Name + "' is being restarted",
+		keyName:    instance.Name,
+		keyStatus:  "restarting",
+		keyMessage: "Instance '" + instance.Name + "' is being restarted",
 	}), nil
 }
 
@@ -270,7 +270,7 @@ func (s *Server) handleGetLogs(ctx context.Context, request mcpgolang.CallToolRe
 	}
 
 	// Parse optional container parameter (default "klaus").
-	container := "klaus"
+	container := klausContainerName
 	if v, _ := args["container"].(string); v != "" {
 		container = v
 	}
@@ -335,7 +335,7 @@ func (s *Server) getOwnedInstance(ctx context.Context, request mcpgolang.CallToo
 	}
 
 	args := request.GetArguments()
-	name, _ := args["name"].(string)
+	name, _ := args[keyName].(string)
 	if name == "" {
 		return nil, mcpError("name is required")
 	}
@@ -414,7 +414,7 @@ func (s *Server) listEntries(ctx context.Context, listFn func(context.Context, .
 	items := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		item := map[string]any{
-			"name":       e.Name,
+			keyName:      e.Name,
 			"repository": e.Repository,
 			"reference":  e.Reference,
 		}

@@ -104,7 +104,7 @@ func (c *agentMCPClient) callTool(ctx context.Context, instanceName, baseURL, to
 
 func (c *agentMCPClient) Prompt(ctx context.Context, instanceName, baseURL, message string) (*mcpgolang.CallToolResult, error) {
 	return c.callTool(ctx, instanceName, baseURL, "prompt", map[string]any{
-		"message": message,
+		keyMessage: message,
 	})
 }
 

@@ -58,13 +58,13 @@ func parsePluginReference(ref string) (klausv1alpha1.PluginReference, error) {
 // and Workspace fields populated based on the provided arguments. Fields not
 // present in args are left at their zero values.
 func buildInstanceSpec(args map[string]any, owner string) (klausv1alpha1.KlausInstanceSpec, error) {
-	model, _ := args["model"].(string)
+	model, _ := args[keyModel].(string)
 	if model == "" {
 		model = defaultModel
 	}
 
 	systemPrompt, _ := args["system_prompt"].(string)
-	personality, _ := args["personality"].(string)
+	personality, _ := args[keyPersonality].(string)
 
 	spec := klausv1alpha1.KlausInstanceSpec{
 		Owner: owner,
@@ -128,7 +128,7 @@ func buildInstanceSpec(args map[string]any, owner string) (klausv1alpha1.KlausIn
 	}
 
 	// Mode.
-	if v, _ := args["mode"].(string); v != "" {
+	if v, _ := args[keyMode].(string); v != "" {
 		switch v {
 		case klausv1alpha1.ModeAgent, klausv1alpha1.ModeChat:
 			spec.Claude.Mode = &v
@@ -148,7 +148,7 @@ func buildInstanceSpec(args map[string]any, owner string) (klausv1alpha1.KlausIn
 	}
 
 	// Plugins.
-	if pluginRefs := parseStringArray(args["plugins"]); len(pluginRefs) > 0 {
+	if pluginRefs := parseStringArray(args[keyPlugins]); len(pluginRefs) > 0 {
 		plugins := make([]klausv1alpha1.PluginReference, 0, len(pluginRefs))
 		for _, ref := range pluginRefs {
 			p, err := parsePluginReference(ref)

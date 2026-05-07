@@ -37,7 +37,7 @@ func (s *Server) handlePromptInstance(ctx context.Context, request mcpgolang.Cal
 
 	args := request.GetArguments()
 
-	message, _ := args["message"].(string)
+	message, _ := args[keyMessage].(string)
 	if message == "" {
 		return mcpError("message is required"), nil
 	}
@@ -67,7 +67,7 @@ func (s *Server) handlePromptInstance(ctx context.Context, request mcpgolang.Cal
 	if !blocking {
 		return mcpSuccess(promptResult{
 			Instance:  instance.Name,
-			Status:    "started",
+			Status:    statusStarted,
 			SessionID: s.agentClient.SessionID(instance.Name),
 			Result:    extractText(toolResult),
 		}), nil
@@ -83,7 +83,7 @@ func (s *Server) handlePromptInstance(ctx context.Context, request mcpgolang.Cal
 
 	return mcpSuccess(promptResult{
 		Instance:  instance.Name,
-		Status:    "completed",
+		Status:    statusCompleted,
 		SessionID: s.agentClient.SessionID(instance.Name),
 		Result:    result,
 	}), nil
@@ -135,7 +135,7 @@ func (s *Server) handleGetResult(ctx context.Context, request mcpgolang.CallTool
 	if toolResult.IsError {
 		return mcpSuccess(agentResult{
 			Instance: instance.Name,
-			Status:   "error",
+			Status:   statusError,
 			Result:   extractText(toolResult),
 		}), nil
 	}
@@ -166,7 +166,7 @@ func (s *Server) handleGetResult(ctx context.Context, request mcpgolang.CallTool
 	// Fallback: response is not the expected JSON structure.
 	return mcpSuccess(agentResult{
 		Instance: instance.Name,
-		Status:   "completed",
+		Status:   statusCompleted,
 		Result:   text,
 	}), nil
 }
@@ -185,9 +185,9 @@ func (s *Server) agentBaseURL(instance *klausv1alpha1.KlausInstance) (string, *m
 
 // terminalStatuses are the agent statuses that indicate the task is done.
 var terminalStatuses = map[string]bool{
-	"completed": true,
-	"error":     true,
-	"failed":    true,
+	statusCompleted: true,
+	statusError:     true,
+	"failed":        true,
 }
 
 // waitForResult polls the agent's status tool until the task completes or the

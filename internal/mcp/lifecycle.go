@@ -19,9 +19,9 @@ func (s *Server) handleStopInstance(ctx context.Context, request mcpgolang.CallT
 	// Already stopped -- return a clear message, not an error.
 	if instance.Spec.Stopped {
 		return mcpSuccess(map[string]any{
-			"name":    instance.Name,
-			"status":  "already_stopped",
-			"message": fmt.Sprintf("Instance '%s' is already stopped", instance.Name),
+			keyName:    instance.Name,
+			keyStatus:  "already_stopped",
+			keyMessage: fmt.Sprintf("Instance '%s' is already stopped", instance.Name),
 		}), nil
 	}
 
@@ -33,9 +33,9 @@ func (s *Server) handleStopInstance(ctx context.Context, request mcpgolang.CallT
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    instance.Name,
-		"status":  "stopping",
-		"message": fmt.Sprintf("Instance '%s' is being stopped", instance.Name),
+		keyName:    instance.Name,
+		keyStatus:  "stopping",
+		keyMessage: fmt.Sprintf("Instance '%s' is being stopped", instance.Name),
 	}), nil
 }
 
@@ -50,9 +50,9 @@ func (s *Server) handleStartInstance(ctx context.Context, request mcpgolang.Call
 	// Not stopped -- return a clear message, not an error.
 	if !instance.Spec.Stopped {
 		return mcpSuccess(map[string]any{
-			"name":    instance.Name,
-			"status":  "already_running",
-			"message": fmt.Sprintf("Instance '%s' is not stopped (state: %s)", instance.Name, instance.Status.State),
+			keyName:    instance.Name,
+			keyStatus:  "already_running",
+			keyMessage: fmt.Sprintf("Instance '%s' is not stopped (state: %s)", instance.Name, instance.Status.State),
 		}), nil
 	}
 
@@ -64,8 +64,8 @@ func (s *Server) handleStartInstance(ctx context.Context, request mcpgolang.Call
 	}
 
 	return mcpSuccess(map[string]any{
-		"name":    instance.Name,
-		"status":  "starting",
-		"message": fmt.Sprintf("Instance '%s' is being started", instance.Name),
+		keyName:    instance.Name,
+		keyStatus:  "starting",
+		keyMessage: fmt.Sprintf("Instance '%s' is being started", instance.Name),
 	}), nil
 }

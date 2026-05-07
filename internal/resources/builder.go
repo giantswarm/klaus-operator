@@ -75,6 +75,30 @@ const (
 	// Pinned to a specific version for reproducible deployments; override via
 	// the --git-clone-image flag.
 	DefaultGitCloneImage = "alpine/git:v2.47.2"
+
+	// LabelAppName is the standard Kubernetes "app.kubernetes.io/name" label key.
+	LabelAppName = "app.kubernetes.io/name"
+
+	// LabelManagedBy is the standard Kubernetes "app.kubernetes.io/managed-by" label key.
+	LabelManagedBy = "app.kubernetes.io/managed-by"
+
+	// LabelOwner is the per-owner label key applied to instance-scoped resources.
+	LabelOwner = "klaus.giantswarm.io/owner"
+
+	// AppKlaus is the value of LabelAppName for instance-scoped resources.
+	AppKlaus = "klaus"
+
+	// AppKlausOperator is the value of LabelManagedBy for resources reconciled
+	// by this operator. It is also the LabelAppName value used for the
+	// operator's own MCP server registration.
+	AppKlausOperator = "klaus-operator"
+
+	// HTTPPortName is the named port shared by the Deployment and Service.
+	HTTPPortName = "http"
+
+	// envValueTrue is the string "true" used as a value for boolean-style
+	// environment variables passed to the Klaus container.
+	envValueTrue = "true"
 )
 
 var sanitizeRegexp = regexp.MustCompile(`[^a-z0-9-]`)
@@ -90,7 +114,7 @@ func UserNamespace(owner string) string {
 // diverge, the Service silently stops matching pods.
 func SelectorLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":     "klaus",
+		LabelAppName:                 AppKlaus,
 		"app.kubernetes.io/instance": instance.Name,
 	}
 }
@@ -98,8 +122,8 @@ func SelectorLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
 // InstanceLabels returns standard labels for resources owned by the instance.
 func InstanceLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
 	labels := SelectorLabels(instance)
-	labels["app.kubernetes.io/managed-by"] = "klaus-operator"
-	labels["klaus.giantswarm.io/owner"] = sanitizeLabelValue(instance.Spec.Owner)
+	labels[LabelManagedBy] = AppKlausOperator
+	labels[LabelOwner] = sanitizeLabelValue(instance.Spec.Owner)
 	return labels
 }
 
@@ -108,10 +132,10 @@ func InstanceLabels(instance *klausv1alpha1.KlausInstance) map[string]string {
 // use managed-by and owner labels without instance-specific identifiers.
 func MCPSecretLabels(owner string) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":       "klaus",
-		"app.kubernetes.io/managed-by": "klaus-operator",
-		"app.kubernetes.io/component":  "mcp-secret",
-		"klaus.giantswarm.io/owner":    sanitizeLabelValue(owner),
+		LabelAppName:                  AppKlaus,
+		LabelManagedBy:                AppKlausOperator,
+		"app.kubernetes.io/component": "mcp-secret",
+		LabelOwner:                    sanitizeLabelValue(owner),
 	}
 }
 

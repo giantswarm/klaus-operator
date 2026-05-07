@@ -81,7 +81,7 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	if instance.Spec.Claude.StrictMCPConfig == nil || *instance.Spec.Claude.StrictMCPConfig {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_STRICT_MCP_CONFIG",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 
@@ -212,7 +212,7 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	if hasAddDirs && loadMemory {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 
@@ -243,7 +243,7 @@ func BuildEnvVars(instance *klausv1alpha1.KlausInstance, configMapName, secretNa
 	if instance.Spec.Claude.IncludePartialMessages != nil && *instance.Spec.Claude.IncludePartialMessages {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_INCLUDE_PARTIAL_MESSAGES",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 
@@ -365,13 +365,13 @@ func buildTelemetryEnvVars(instance *klausv1alpha1.KlausInstance) []corev1.EnvVa
 	if tel.LogUserPrompts != nil && *tel.LogUserPrompts {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_CODE_LOG_USER_PROMPTS",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 	if tel.LogToolDetails != nil && *tel.LogToolDetails {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_CODE_LOG_TOOL_DETAILS",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 
@@ -385,7 +385,7 @@ func buildTelemetryEnvVars(instance *klausv1alpha1.KlausInstance) []corev1.EnvVa
 	if tel.IncludeVersion != nil && *tel.IncludeVersion {
 		envs = append(envs, corev1.EnvVar{
 			Name:  "CLAUDE_CODE_INCLUDE_VERSION",
-			Value: "true",
+			Value: envValueTrue,
 		})
 	}
 	if tel.IncludeAccountUUID != nil && !*tel.IncludeAccountUUID {

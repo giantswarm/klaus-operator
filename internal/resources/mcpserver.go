@@ -37,9 +37,9 @@ func BuildMCPServerCRD(instance *klausv1alpha1.KlausInstance, instanceNamespace 
 				"name":      "klaus-" + instance.Name,
 				"namespace": musterNamespace,
 				"labels": map[string]any{
-					"app.kubernetes.io/managed-by": "klaus-operator",
-					"app.kubernetes.io/instance":   instance.Name,
-					"klaus.giantswarm.io/owner":    sanitizeLabelValue(instance.Spec.Owner),
+					LabelManagedBy:               AppKlausOperator,
+					"app.kubernetes.io/instance": instance.Name,
+					LabelOwner:                   sanitizeLabelValue(instance.Spec.Owner),
 				},
 			},
 			"spec": spec,
@@ -56,11 +56,11 @@ func BuildOperatorMCPServerCRD(operatorServiceURL, musterNamespace string) *unst
 			"apiVersion": "muster.giantswarm.io/v1alpha1",
 			"kind":       "MCPServer",
 			"metadata": map[string]any{
-				"name":      "klaus-operator",
+				"name":      AppKlausOperator,
 				"namespace": musterNamespace,
 				"labels": map[string]any{
-					"app.kubernetes.io/managed-by": "klaus-operator",
-					"app.kubernetes.io/name":       "klaus-operator",
+					LabelManagedBy: AppKlausOperator,
+					LabelAppName:   AppKlausOperator,
 				},
 			},
 			"spec": map[string]any{
