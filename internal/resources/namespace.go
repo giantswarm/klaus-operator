@@ -13,8 +13,8 @@ func BuildNamespace(instance *klausv1alpha1.KlausInstance) *corev1.Namespace {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: UserNamespace(instance.Spec.Owner),
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "klaus-operator",
-				"klaus.giantswarm.io/owner":    sanitizeLabelValue(instance.Spec.Owner),
+				LabelManagedBy: AppKlausOperator,
+				LabelOwner:     sanitizeLabelValue(instance.Spec.Owner),
 			},
 		},
 	}

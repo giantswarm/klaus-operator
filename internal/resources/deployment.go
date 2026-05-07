@@ -74,11 +74,11 @@ func BuildDeployment(instance *klausv1alpha1.KlausInstance, namespace, klausImag
 					},
 					Containers: []corev1.Container{
 						{
-							Name:  "klaus",
+							Name:  AppKlaus,
 							Image: klausImage,
 							Ports: []corev1.ContainerPort{
 								{
-									Name:          "http",
+									Name:          HTTPPortName,
 									ContainerPort: int32(KlausPort),
 									Protocol:      corev1.ProtocolTCP,
 								},
