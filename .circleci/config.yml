@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  architect: giantswarm/architect@8.0.2
+  architect: giantswarm/architect@8.1.0
 
 workflows:
   test:
@@ -15,8 +15,9 @@ workflows:
               only: /^v.*/
 
       # Branch builds: amd64 only for faster PR feedback
-      - architect/push-to-registries-multiarch:
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-registries
           platforms: "linux/amd64"
           requires:
@@ -28,8 +29,9 @@ workflows:
                 - master
 
       # Tag builds: full multi-arch (amd64 + arm64)
-      - architect/push-to-registries-multiarch:
+      - architect/push-to-registries:
           context: architect
+          multiarch: true
           name: push-to-registries-release
           requires:
             - go-build
