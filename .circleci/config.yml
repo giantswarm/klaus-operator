@@ -28,13 +28,30 @@ workflows:
                 - main
                 - master
 
-      # Tag builds: full multi-arch (amd64 + arm64)
+      # Tag builds: full multi-arch (amd64 + arm64). split-china-push skips
+      # the Aliyun mirror; the sync-china-registry job below mirrors the image
+      # from gsoci to Aliyun via the in-China galaxy-runner.
       - architect/push-to-registries:
           context: architect
           multiarch: true
           name: push-to-registries-release
+          split-china-push: true
           requires:
             - go-build
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+
+      # Mirror the image gsoci -> Aliyun via the in-China runner. Runs on the
+      # giantswarm/galaxy-runner resource class. Does NOT block the chart push.
+      - architect/sync-china-registry:
+          context: architect
+          name: sync-china-registry
+          requires:
+            - go-build
+            - push-to-registries-release
           filters:
             tags:
               only: /^v.*/
