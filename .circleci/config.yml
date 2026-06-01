@@ -1,89 +1,121 @@
 version: 2.1
-
 orbs:
-  architect: giantswarm/architect@8.3.0
+  architect: giantswarm/architect@9.0.0
 
 workflows:
-  test:
+  build:
     jobs:
-      - architect/go-build:
-          context: architect
-          name: go-build
-          binary: klaus-operator
-          filters:
-            tags:
-              only: /^v.*/
+    - architect/go-build:
+        name: go-build-klaus-operator
+        binary: klaus-operator
+        context: architect
+        filters:
+          tags:
+            only: /^v.*/
 
-      # Branch builds: amd64 only for faster PR feedback
-      - architect/push-to-registries:
-          context: architect
-          multiarch: true
-          name: push-to-registries
-          platforms: "linux/amd64"
-          requires:
-            - go-build
-          filters:
-            branches:
-              ignore:
-                - main
-                - master
+    # Branch builds: multi-arch image to gsoci for PR validation. v9's
+    # push-to-registries always uses buildx and derives the platforms from
+    # go-build's .platforms file (linux/amd64,linux/arm64 by default).
+    - architect/push-to-registries:
+        context: architect
+        name: push-to-registries
+        requires:
+        - go-build-klaus-operator
+        filters:
+          branches:
+            ignore:
+            - main
 
-      # Tag builds: full multi-arch (amd64 + arm64). split-china-push skips
-      # the Aliyun mirror; the sync-china-registry job below mirrors the image
-      # from gsoci to Aliyun via the in-China galaxy-runner.
-      - architect/push-to-registries:
-          context: architect
-          multiarch: true
-          name: push-to-registries-release
-          split-china-push: true
-          requires:
-            - go-build
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
+    # Tag builds: push multi-arch image to gsoci + gsociprivate. Aliyun is
+    # handled by the sync-china-registry job below (orb's split-china-push
+    # mechanism), so the buildx push no longer crosses the Pacific.
+    - architect/push-to-registries:
+        context: architect
+        name: push-to-registries-release
+        split-china-push: true
+        requires:
+        - go-build-klaus-operator
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
 
-      # Mirror the image gsoci -> Aliyun via the in-China runner. Runs on the
-      # giantswarm/galaxy-runner resource class. Does NOT block the chart push.
-      - architect/sync-china-registry:
-          context: architect
-          name: sync-china-registry
-          requires:
-            - go-build
-            - push-to-registries-release
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
+    # Mirror gsoci -> Aliyun via the in-China giantswarm/galaxy-runner. Runs
+    # in parallel with the chart catalog push; Aliyun mirror failures do NOT
+    # block the chart publish.
+    - architect/sync-china-registry:
+        context: architect
+        name: sync-china-registry
+        requires:
+        - push-to-registries-release
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
 
-      # Branch: push chart after images
-      - architect/push-to-app-catalog:
-          context: architect
-          name: push-to-app-catalog
-          app_catalog: giantswarm-catalog
-          app_catalog_test: giantswarm-test-catalog
-          chart: klaus-operator
-          requires:
-            - push-to-registries
-          filters:
-            branches:
-              ignore:
-                - main
-                - master
+    - architect/push-to-app-catalog:
+        executor: app-build-suite
+        context: architect
+        name: build-klaus-operator-chart
+        app_catalog: giantswarm-catalog
+        app_catalog_test: giantswarm-test-catalog
+        chart: klaus-operator
+        push_to_appcatalog: false
+        push_to_oci_registry: false
+        persist_chart_archive: true
+        requires:
+        - go-build-klaus-operator
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore:
+            - main
 
-      # Tag: push chart after images
-      - architect/push-to-app-catalog:
-          context: architect
-          name: push-to-app-catalog-release
-          app_catalog: giantswarm-catalog
-          app_catalog_test: giantswarm-test-catalog
-          chart: klaus-operator
-          requires:
-            - push-to-registries-release
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
+    - architect/run-tests-with-ats:
+        name: execute chart tests
+        requires:
+        - build-klaus-operator-chart
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore:
+            - main
+
+    # Branch: push chart (git catalog + OCI per architect default) after tests + image
+    - architect/push-to-app-catalog:
+        executor: app-build-suite
+        context: architect
+        name: push-klaus-operator-to-giantswarm-app-catalog
+        app_catalog: giantswarm-catalog
+        app_catalog_test: giantswarm-test-catalog
+        chart: klaus-operator
+        requires:
+        - execute chart tests
+        - push-to-registries
+        filters:
+          branches:
+            ignore:
+            - main
+
+    # Tag: push chart after tests + the gsoci image. Intentionally does NOT
+    # depend on sync-china-registry so the chart catalog can publish even if
+    # the in-China Aliyun mirror is slow or fails.
+    - architect/push-to-app-catalog:
+        executor: app-build-suite
+        context: architect
+        name: push-klaus-operator-to-giantswarm-app-catalog-release
+        app_catalog: giantswarm-catalog
+        app_catalog_test: giantswarm-test-catalog
+        chart: klaus-operator
+        requires:
+        - execute chart tests
+        - push-to-registries-release
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
