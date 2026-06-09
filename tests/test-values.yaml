@@ -1,0 +1,9 @@
+# Values used by app-test-suite when installing the chart on the kind smoke
+# cluster. The default chart renders a ServiceMonitor (Prometheus Operator CRD)
+# and an MCPServer custom resource (muster CRD); neither CRD exists on a bare
+# kind cluster, so both are disabled here.
+serviceMonitor:
+  enabled: false
+
+muster:
+  registerOperator: false
