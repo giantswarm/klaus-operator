@@ -74,3 +74,13 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+// Force fixed versions of transitive dependencies flagged by nancy (OSS Index).
+// These modules are pulled in by controller-runtime / apiextensions-apiserver /
+// x/net but not imported directly, so a plain `go get` is pruned by `go mod tidy`.
+// CVE-2026-41178 (otel), CVE-2026-39883 (otel/sdk), x/crypto CVE-2026-39827..46598.
+replace (
+	go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.44.0
+	go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.44.0
+	golang.org/x/crypto => golang.org/x/crypto v0.53.0
+)
