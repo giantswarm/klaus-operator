@@ -84,3 +84,5 @@ replace (
 	go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.44.0
 	golang.org/x/crypto => golang.org/x/crypto v0.54.0
 )
+
+replace golang.org/x/text v0.37.0 => golang.org/x/text v0.40.0
