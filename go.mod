@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.5
 
 require (
-	github.com/giantswarm/klaus-oci v0.0.63
+	github.com/giantswarm/klaus-oci v0.0.66
 	github.com/mark3labs/mcp-go v0.58.0
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
