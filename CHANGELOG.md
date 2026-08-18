@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Trim every separator the `helm.sh/chart` label truncation can expose, not just `-`. The label is `printf "%s-%s" .Chart.Name .Chart.Version | trunc 63`, and CI chart versions are `<semver>-dev.<branch>.<date>.<time>.<sha>`, so for short branch names the 63-character cut lands on a `.` -- e.g. `renovate/go-1.x` produced `klaus-operator-0.0.134-dev.renovate-go-1-x.2026-08-18.08-06-36.`. Kubernetes requires label values to end in an alphanumeric character, so the API server rejected all seven objects in the release, `helm install` never completed, the App CR never reached `deployed`, and `execute-chart-tests` sat silent until the 10-minute no-output timeout. Every recorded build of `renovate/go-1.x` failed this way since 2026-07-07, independent of the Go version being bumped.
+
 ### Changed
 
 
