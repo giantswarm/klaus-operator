@@ -8,9 +8,14 @@ Expand the name of the chart.
 
 {{/*
 Create chart name and version as used by the chart label.
+
+CI versions are "<semver>-dev.<branch>.<date>.<time>.<sha>", so the 63-char
+label truncation can land on any separator, not just "-". A label value must
+end in an alphanumeric character or the API server rejects every object in the
+release, hence trimAll over trimSuffix.
 */}}
 {{- define "chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimAll "-._" -}}
 {{- end -}}
 
 {{/*
