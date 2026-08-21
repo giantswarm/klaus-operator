@@ -2,7 +2,7 @@ module github.com/giantswarm/klaus-operator
 
 go 1.26.0
 
-toolchain go1.26.6
+toolchain go1.27.0
 
 require (
 	github.com/giantswarm/klaus-oci v0.0.66
