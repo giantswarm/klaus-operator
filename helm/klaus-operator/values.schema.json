@@ -1,46 +1,15 @@
 {
-    "$schema": "http://json-schema.org/schema#",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
+    "additionalProperties": false,
     "properties": {
-        "name": {
-            "type": "string"
-        },
-        "serviceType": {
-            "type": "string"
-        },
-        "image": {
+        "affinity": {
             "type": "object",
-            "properties": {
-                "registry": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "tag": {
-                    "type": "string"
-                },
-                "pullPolicy": {
-                    "type": "string"
-                }
-            }
-        },
-        "klausImage": {
-            "type": "string"
-        },
-        "replicaCount": {
-            "type": "integer"
-        },
-        "leaderElection": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                }
-            }
+            "additionalProperties": false
         },
         "anthropicKeySecret": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "name": {
                     "type": "string"
@@ -50,9 +19,70 @@
                 }
             }
         },
+        "gitCloneImage": {
+            "type": "string"
+        },
+        "global": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "podSecurityStandards": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enforced": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "pullPolicy": {
+                    "type": "string"
+                },
+                "registry": {
+                    "type": "string"
+                },
+                "tag": {
+                    "type": "string"
+                }
+            }
+        },
+        "klausImage": {
+            "type": "string"
+        },
+        "leaderElection": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "mcp": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
+                "port": {
+                    "type": "integer"
+                }
+            }
+        },
+        "metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
                 "port": {
                     "type": "integer"
                 }
@@ -60,6 +90,7 @@
         },
         "muster": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "namespace": {
                     "type": "string"
@@ -69,19 +100,29 @@
                 }
             }
         },
+        "name": {
+            "type": "string"
+        },
+        "nodeSelector": {
+            "type": "object",
+            "additionalProperties": false
+        },
         "pod": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
-                "user": {
+                "group": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "id": {
                             "type": "integer"
                         }
                     }
                 },
-                "group": {
+                "user": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "id": {
                             "type": "integer"
@@ -90,11 +131,40 @@
                 }
             }
         },
+        "podSecurityContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "seccompProfile": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "probes": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "port": {
+                    "type": "integer"
+                }
+            }
+        },
+        "replicaCount": {
+            "type": "integer"
+        },
         "resources": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "limits": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "cpu": {
                             "type": "string"
@@ -106,6 +176,7 @@
                 },
                 "requests": {
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "cpu": {
                             "type": "string"
@@ -117,38 +188,55 @@
                 }
             }
         },
+        "securityContext": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "allowPrivilegeEscalation": {
+                    "type": "boolean"
+                },
+                "capabilities": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "drop": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "readOnlyRootFilesystem": {
+                    "type": "boolean"
+                },
+                "seccompProfile": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "type": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "serviceAccount": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
+                "annotations": {
+                    "type": "object",
+                    "additionalProperties": false
+                },
                 "create": {
                     "type": "boolean"
-                },
-                "annotations": {
-                    "type": "object"
-                }
-            }
-        },
-        "metrics": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                },
-                "port": {
-                    "type": "integer"
-                }
-            }
-        },
-        "probes": {
-            "type": "object",
-            "properties": {
-                "port": {
-                    "type": "integer"
                 }
             }
         },
         "serviceMonitor": {
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "enabled": {
                     "type": "boolean"
@@ -161,70 +249,11 @@
                 }
             }
         },
-        "podSecurityContext": {
-            "type": "object",
-            "properties": {
-                "seccompProfile": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "securityContext": {
-            "type": "object",
-            "properties": {
-                "allowPrivilegeEscalation": {
-                    "type": "boolean"
-                },
-                "readOnlyRootFilesystem": {
-                    "type": "boolean"
-                },
-                "seccompProfile": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "capabilities": {
-                    "type": "object",
-                    "properties": {
-                        "drop": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "global": {
-            "type": "object",
-            "properties": {
-                "podSecurityStandards": {
-                    "type": "object",
-                    "properties": {
-                        "enforced": {
-                            "type": "boolean"
-                        }
-                    }
-                }
-            }
-        },
-        "nodeSelector": {
-            "type": "object"
+        "serviceType": {
+            "type": "string"
         },
         "tolerations": {
             "type": "array"
-        },
-        "affinity": {
-            "type": "object"
         }
     }
 }
