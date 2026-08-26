@@ -80,7 +80,7 @@ require (
 // x/net but not imported directly, so a plain `go get` is pruned by `go mod tidy`.
 // CVE-2026-41178 (otel), CVE-2026-39883 (otel/sdk), x/crypto CVE-2026-39827..46598.
 replace (
-	go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.45.0
-	go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.45.0
+	go.opentelemetry.io/otel => go.opentelemetry.io/otel v1.46.0
+	go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.46.0
 	golang.org/x/crypto => golang.org/x/crypto v0.55.0
 )
