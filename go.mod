@@ -93,3 +93,9 @@ replace (
 	go.opentelemetry.io/otel/sdk => go.opentelemetry.io/otel/sdk v1.46.0
 	golang.org/x/crypto => golang.org/x/crypto v0.55.0
 )
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.40.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.40.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0
+
+replace google.golang.org/grpc v1.79.3 => google.golang.org/grpc v1.83.2
