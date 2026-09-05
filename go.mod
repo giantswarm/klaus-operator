@@ -2,10 +2,10 @@ module github.com/giantswarm/klaus-operator
 
 go 1.26.0
 
-toolchain go1.27.0
+toolchain go1.27.1
 
 require (
-	github.com/giantswarm/klaus-oci v0.0.69
+	github.com/giantswarm/klaus-oci v0.0.71
 	github.com/mark3labs/mcp-go v0.58.0
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
