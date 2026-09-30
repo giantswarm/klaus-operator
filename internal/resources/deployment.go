@@ -144,8 +144,12 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 	}
 
 	ws := instance.Spec.Workspace
-	secretKey := GitSecretKey(instance)
-	script := buildGitCloneScript(ws.GitRepo, ws.GitRef, NeedsGitSecret(instance), secretKey)
+	script := buildGitCloneScript(ws.GitRepo, ws.GitRef)
+
+	env := []corev1.EnvVar{
+		{Name: "HOME", Value: GitTmpMountPath},
+		{Name: "GIT_CONFIG_NOSYSTEM", Value: "1"},
+	}
 
 	mounts := []corev1.VolumeMount{
 		{Name: WorkspaceVolumeName, MountPath: WorkspaceMountPath},
@@ -157,18 +161,16 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 			MountPath: GitSecretMountPath,
 			ReadOnly:  true,
 		})
+		env = append(env, gitCredentialEnv(GitSecretKey(instance))...)
 	}
 
 	return []corev1.Container{
 		{
-			Name:    "git-clone",
-			Image:   gitCloneImage,
-			Command: []string{"sh", "-c"},
-			Args:    []string{script},
-			Env: []corev1.EnvVar{
-				{Name: "HOME", Value: GitTmpMountPath},
-				{Name: "GIT_CONFIG_NOSYSTEM", Value: "1"},
-			},
+			Name:         "git-clone",
+			Image:        gitCloneImage,
+			Command:      []string{"sh", "-c"},
+			Args:         []string{script},
+			Env:          env,
 			VolumeMounts: mounts,
 			SecurityContext: &corev1.SecurityContext{
 				RunAsUser:                ptr.To(int64(1000)),
@@ -183,56 +185,52 @@ func buildGitCloneInitContainers(instance *klausv1alpha1.KlausInstance, gitClone
 	}
 }
 
+// gitCredentialEnv configures a per-process git credential helper through
+// GIT_CONFIG_* environment variables. The helper reads the token from the
+// mounted secret each time git authenticates, so the token never appears
+// in a remote URL, in .git/config on the workspace PVC or in the pod spec.
+func gitCredentialEnv(secretKey string) []corev1.EnvVar {
+	keyPath := shellQuote(path.Join(GitSecretMountPath, secretKey))
+	helper := fmt.Sprintf(`!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=$(cat %s)"; }; f`, keyPath)
+	return []corev1.EnvVar{
+		{Name: "GIT_TERMINAL_PROMPT", Value: "0"},
+		{Name: "GIT_CONFIG_COUNT", Value: "1"},
+		{Name: "GIT_CONFIG_KEY_0", Value: "credential.helper"},
+		{Name: "GIT_CONFIG_VALUE_0", Value: helper},
+	}
+}
+
 // buildGitCloneScript generates the shell script for the git-clone init
 // container. It handles both fresh clones and incremental updates when the
 // PVC already contains a previous checkout. User-supplied values (gitRepo,
 // gitRef) are single-quoted to prevent shell injection. CRD validation
 // patterns provide an additional layer of defense.
 //
-// When a git secret is configured, HTTPS token authentication is used:
-// the token is read from the mounted secret, injected into the clone URL
-// via POSIX parameter expansion, and stripped from the persisted remote
-// after clone/fetch to avoid leaking credentials on the workspace PVC.
-func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey string) string {
+// Authentication is not the script's concern: gitCredentialEnv supplies a
+// credential helper when a git secret is configured. The update path resets
+// origin to gitRepo, which also drops credentials an older operator version
+// left in the persisted remote URL.
+func buildGitCloneScript(gitRepo, gitRef string) string {
 	quotedRepo := shellQuote(gitRepo)
 	quotedWs := shellQuote(WorkspaceMountPath)
-
-	var parts []string
 
 	// Fail fast on any command error. The update path uses explicit fallback
 	// blocks to avoid triggering set -e when git fetch/pull fails on a
 	// previously cloned workspace.
-	parts = append(parts, "set -e")
-
-	cloneURL := quotedRepo
-
-	if hasSecret {
-		keyPath := path.Join(GitSecretMountPath, secretKey)
-		parts = append(parts,
-			"export GIT_TERMINAL_PROMPT=0",
-			fmt.Sprintf("TOKEN=$(cat '%s')", keyPath),
-			"REPO="+quotedRepo,
-			`AUTH_URL="${REPO%%://*}://x-access-token:${TOKEN}@${REPO#*://}"`,
-		)
-		cloneURL = `"$AUTH_URL"`
-	}
+	parts := []string{"set -e"}
 
 	// Fresh clone vs incremental update.
 	parts = append(parts, fmt.Sprintf("if [ ! -d %s/.git ]; then", quotedWs))
 	if gitRef != "" {
-		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), cloneURL, quotedWs))
+		parts = append(parts, fmt.Sprintf("  git clone --branch %s %s %s", shellQuote(gitRef), quotedRepo, quotedWs))
 	} else {
-		parts = append(parts, fmt.Sprintf("  git clone %s %s", cloneURL, quotedWs))
+		parts = append(parts, fmt.Sprintf("  git clone %s %s", quotedRepo, quotedWs))
 	}
-	if hasSecret {
-		parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
-		parts = append(parts, `  git remote set-url origin "$REPO"`)
-	}
-	parts = append(parts, "else")
-	parts = append(parts, fmt.Sprintf("  cd %s", quotedWs))
-	if hasSecret {
-		parts = append(parts, `  git remote set-url origin "$AUTH_URL"`)
-	}
+	parts = append(parts,
+		"else",
+		fmt.Sprintf("  cd %s", quotedWs),
+		"  git remote set-url origin "+quotedRepo,
+	)
 	if gitRef != "" {
 		quotedRef := shellQuote(gitRef)
 		parts = append(parts,
@@ -242,9 +240,6 @@ func buildGitCloneScript(gitRepo, gitRef string, hasSecret bool, secretKey strin
 		)
 	} else {
 		parts = append(parts, "  git pull || echo 'WARNING: git pull failed, using existing checkout'")
-	}
-	if hasSecret {
-		parts = append(parts, `  git remote set-url origin "$REPO"`)
 	}
 	parts = append(parts, "fi")
 

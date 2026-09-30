@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `git-clone` init container authenticates with `workspace.gitSecretRef` through a per-process git credential helper (`GIT_CONFIG_*` environment) that reads the token from the mounted secret, instead of building an `x-access-token` clone URL and resetting the remote afterwards. The token never lands in a remote URL or `.git/config` on the workspace PVC, not even when the container dies mid-clone; an existing checkout's origin is reset to `workspace.gitRepo`, which drops credentials an older version left in it.
 - Trim every separator the `helm.sh/chart` label truncation can expose, not just `-`. The label is `printf "%s-%s" .Chart.Name .Chart.Version | trunc 63`, and CI chart versions are `<semver>-dev.<branch>.<date>.<time>.<sha>`, so for short branch names the 63-character cut lands on a `.` -- e.g. `renovate/go-1.x` produced `klaus-operator-0.0.134-dev.renovate-go-1-x.2026-08-18.08-06-36.`. Kubernetes requires label values to end in an alphanumeric character, so the API server rejected all seven objects in the release, `helm install` never completed, the App CR never reached `deployed`, and `execute-chart-tests` sat silent until the 10-minute no-output timeout. Every recorded build of `renovate/go-1.x` failed this way since 2026-07-07, independent of the Go version being bumped.
 - Drop the version badges from the chart README so a release PR's `Chart.yaml` version bump no longer leaves `README.md` stale and fails the helm-docs pre-commit hook.
 
