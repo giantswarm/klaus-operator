@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
@@ -366,20 +367,20 @@ func TestBuildDeployment_WithGitCloneAndSecret(t *testing.T) {
 		t.Error("expected git-secret volume")
 	}
 
-	// Verify the script uses HTTPS token auth.
+	// Verify HTTPS token auth goes through a credential helper, never the URL.
+	env := envMap(initContainers[0].Env)
+	if env["GIT_TERMINAL_PROMPT"] != "0" {
+		t.Error("expected GIT_TERMINAL_PROMPT=0 on git-clone init container")
+	}
+	if env["GIT_CONFIG_KEY_0"] != "credential.helper" {
+		t.Errorf("GIT_CONFIG_KEY_0 = %q, want credential.helper", env["GIT_CONFIG_KEY_0"])
+	}
+	if want := "$(cat '/etc/git-secret/" + DefaultGitSecretKey + "')"; !strings.Contains(env["GIT_CONFIG_VALUE_0"], want) {
+		t.Errorf("credential helper %q does not read %s", env["GIT_CONFIG_VALUE_0"], want)
+	}
 	script := initContainers[0].Args[0]
-	if !strings.Contains(script, "x-access-token") {
-		t.Error("expected x-access-token in clone script when gitSecretRef is set")
-	}
-	if !strings.Contains(script, "GIT_TERMINAL_PROMPT=0") {
-		t.Error("expected GIT_TERMINAL_PROMPT=0 in clone script")
-	}
-	if !strings.Contains(script, DefaultGitSecretKey) {
-		t.Errorf("expected default secret key %q in clone script", DefaultGitSecretKey)
-	}
-	// Verify credentials are stripped from remote after clone.
-	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
-		t.Error("expected credential cleanup (git remote set-url) in clone script")
+	if strings.Contains(script, "x-access-token") || strings.Contains(script, GitSecretMountPath) {
+		t.Error("clone script must not handle the token; the credential helper does")
 	}
 	// SSH should not be used.
 	if strings.Contains(script, "GIT_SSH_COMMAND") {
@@ -409,9 +410,8 @@ func TestBuildDeployment_WithGitCloneCustomKey(t *testing.T) {
 		t.Fatalf("expected 1 init container, got %d", len(initContainers))
 	}
 
-	script := initContainers[0].Args[0]
-	if !strings.Contains(script, "gh-pat") {
-		t.Error("expected custom key 'gh-pat' in clone script")
+	if helper := envMap(initContainers[0].Env)["GIT_CONFIG_VALUE_0"]; !strings.Contains(helper, "/etc/git-secret/gh-pat") {
+		t.Errorf("credential helper %q does not read custom key 'gh-pat'", helper)
 	}
 }
 
@@ -464,7 +464,7 @@ func TestBuildDeployment_NotStoppedOneReplica(t *testing.T) {
 }
 
 func TestBuildGitCloneScript_WithRef(t *testing.T) {
-	script := buildGitCloneScript("https://github.com/example/project.git", "main", false, "")
+	script := buildGitCloneScript("https://github.com/example/project.git", "main")
 	if !strings.Contains(script, "--branch 'main'") {
 		t.Error("expected --branch 'main' (quoted) in clone script")
 	}
@@ -485,7 +485,7 @@ func TestBuildGitCloneScript_WithRef(t *testing.T) {
 		t.Error("unexpected GIT_SSH_COMMAND")
 	}
 	if strings.Contains(script, "x-access-token") {
-		t.Error("unexpected token auth when hasSecret is false")
+		t.Error("unexpected token in clone script")
 	}
 	if strings.Contains(script, "|| true") {
 		t.Error("unexpected || true; should use warning echo instead")
@@ -493,7 +493,7 @@ func TestBuildGitCloneScript_WithRef(t *testing.T) {
 }
 
 func TestBuildGitCloneScript_WithoutRef(t *testing.T) {
-	script := buildGitCloneScript("https://github.com/example/project.git", "", false, "")
+	script := buildGitCloneScript("https://github.com/example/project.git", "")
 	if strings.Contains(script, "--branch") {
 		t.Error("unexpected --branch when gitRef is empty")
 	}
@@ -502,47 +502,29 @@ func TestBuildGitCloneScript_WithoutRef(t *testing.T) {
 	}
 }
 
-func TestBuildGitCloneScript_WithSecret(t *testing.T) {
-	script := buildGitCloneScript("https://github.com/example/project.git", "main", true, "token")
-	if !strings.Contains(script, "x-access-token") {
-		t.Error("expected x-access-token in clone script when hasSecret is true")
+func TestBuildGitCloneScript_UpdateResetsOrigin(t *testing.T) {
+	script := buildGitCloneScript("https://github.com/example/project.git", "")
+	if !strings.Contains(script, "git remote set-url origin 'https://github.com/example/project.git'") {
+		t.Error("expected the update path to reset origin to gitRepo")
 	}
-	if !strings.Contains(script, "/etc/git-secret/token") {
-		t.Error("expected secret key path in token setup")
-	}
-	if !strings.Contains(script, "GIT_TERMINAL_PROMPT=0") {
-		t.Error("expected GIT_TERMINAL_PROMPT=0 to suppress credential prompts")
-	}
-	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
-		t.Error("expected credential cleanup after clone/fetch")
-	}
-	// Verify fetch, checkout, pull are separate commands (not && chain).
-	if !strings.Contains(script, "git fetch origin || {") {
-		t.Error("expected git fetch with explicit fallback block")
-	}
-	if strings.Contains(script, "GIT_SSH_COMMAND") {
-		t.Error("unexpected GIT_SSH_COMMAND; should use HTTPS token auth")
+	if strings.Contains(script, "AUTH_URL") || strings.Contains(script, "TOKEN") {
+		t.Error("clone script must not build an authenticated URL")
 	}
 }
 
-func TestBuildGitCloneScript_WithSecretNoRef(t *testing.T) {
-	script := buildGitCloneScript("https://github.com/example/project.git", "", true, "token")
-	if !strings.Contains(script, "x-access-token") {
-		t.Error("expected x-access-token in clone script")
+func TestGitCredentialEnv(t *testing.T) {
+	env := envMap(gitCredentialEnv("token"))
+	if env["GIT_CONFIG_COUNT"] != "1" || env["GIT_CONFIG_KEY_0"] != "credential.helper" {
+		t.Errorf("unexpected GIT_CONFIG_* env: %v", env)
 	}
-	if !strings.Contains(script, `"$AUTH_URL"`) {
-		t.Error("expected AUTH_URL variable used for clone")
-	}
-	if !strings.Contains(script, `git remote set-url origin "$REPO"`) {
-		t.Error("expected credential cleanup in both branches")
-	}
-	if strings.Contains(script, "--branch") {
-		t.Error("unexpected --branch when gitRef is empty")
+	want := `!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=$(cat '/etc/git-secret/token')"; }; f`
+	if env["GIT_CONFIG_VALUE_0"] != want {
+		t.Errorf("helper = %q, want %q", env["GIT_CONFIG_VALUE_0"], want)
 	}
 }
 
 func TestBuildGitCloneScript_ValuesAreShellQuoted(t *testing.T) {
-	script := buildGitCloneScript("https://example.com/repo.git", "main", false, "")
+	script := buildGitCloneScript("https://example.com/repo.git", "main")
 	if !strings.Contains(script, "'https://example.com/repo.git'") {
 		t.Error("expected gitRepo to be single-quoted in clone script")
 	}
@@ -553,4 +535,12 @@ func TestBuildGitCloneScript_ValuesAreShellQuoted(t *testing.T) {
 	if !strings.Contains(script, shellQuote(WorkspaceMountPath)) {
 		t.Error("expected workspace mount path to be single-quoted in clone script")
 	}
+}
+
+func envMap(env []corev1.EnvVar) map[string]string {
+	m := make(map[string]string, len(env))
+	for _, e := range env {
+		m[e.Name] = e.Value
+	}
+	return m
 }
